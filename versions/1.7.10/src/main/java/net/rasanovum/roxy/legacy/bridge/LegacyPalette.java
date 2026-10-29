@@ -17,9 +17,11 @@ public final class LegacyPalette {
     }
 
     public int register(String registryName, int metadata, int opacity) {
-        if (registryName == null || registryName.isEmpty() || metadata < 0 || metadata > 15) {
-            throw new IllegalArgumentException("A registered block name and four-bit metadata are required");
+        if (registryName == null || registryName.isEmpty() || metadata < 0) {
+            throw new IllegalArgumentException(
+                "Invalid legacy state: registry=" + registryName + ", metadata=" + metadata);
         }
+        // EndlessIDs extends metadata beyond the vanilla nibble. Preserve the full value in the key.
         int boundedOpacity = Math.min(15, Math.max(0, opacity));
         // Some legacy blocks depend on their position/tile entity for opacity.
         String key = registryName + "@" + metadata + ":" + boundedOpacity;

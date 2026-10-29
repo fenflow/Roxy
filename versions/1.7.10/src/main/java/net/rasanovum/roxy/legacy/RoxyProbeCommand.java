@@ -62,10 +62,9 @@ public final class RoxyProbeCommand extends CommandBase {
             sender.addChatMessage(
                 new ChatComponentText(
                     "Roxy probe failed: " + error.getClass()
-                        .getSimpleName()
-                        + ": "
-                        + error.getMessage()
-                        + ". Requires Java 21+ and original Voxy H3w2nVdU at roxy/voxy.jar."));
+                        .getSimpleName() + ": " + error.getMessage() + ". See the client log for details."));
+            org.apache.logging.log4j.LogManager.getLogger("Roxy")
+                .error("Legacy Voxy bridge probe failed", error);
         }
     }
 }

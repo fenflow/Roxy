@@ -39,4 +39,13 @@ public class LegacyMapperTest {
         assertEquals(15, mapper.getBlockStateOpacity(LegacyMapper.pack(ore, 0, 0, 0)));
         assertEquals(0, mapper.getBlockStateOpacity(LegacyMapper.pack(transparent, 0, 0, 0)));
     }
+
+    @Test
+    public void preservesEndlessIdsExtendedMetadataWithoutTruncation() {
+        LegacyPalette palette = new LegacyPalette();
+        int low = palette.register("gregtech:gt.blockores", 15, 255);
+        int extended = palette.register("gregtech:gt.blockores", 65535, 255);
+        assertTrue(low != extended);
+        assertEquals(extended, palette.register("gregtech:gt.blockores", 65535, 255));
+    }
 }

@@ -2,8 +2,8 @@
 
 **Status: experimental bridge probe, not a working LOD renderer. Do not install this expecting distant terrain.**
 
-This branch follows Roxy's external-JAR compatibility approach. It does not fork,
-copy, compile, bundle, or publish Voxy's implementation or assets. The original
+This branch follows Roxy's external-JAR compatibility approach. Its source and
+build artifacts do not contain Voxy's implementation or assets. The original
 Voxy JAR is supplied separately and stays unchanged on disk. Roxy currently loads
 three original classes through an isolated loader and redirects their Mapper
 references to an independently implemented legacy adapter in memory. Voxy's own
@@ -22,6 +22,7 @@ runtime interoperability. Voxy's release declares All Rights Reserved.
 | Angelica | 2.2.10 |
 | GTNHLib | 0.11.46 |
 | Hodgepodge | 2.7.196 |
+| EndlessIDs | 1.7.4 (extended block IDs, 16-bit metadata and biomes) |
 | LWJGL3ify / LWJGL | 3.0.31 / 3.4.2 |
 | Runtime Java | 21+ in the Java 17-26 pack |
 | External Voxy | 0.2.16-beta for 1.21.11, Modrinth H3w2nVdU |
@@ -54,7 +55,7 @@ mod JAR for Voxy classes, assets, and nested JARs.
 ## What works so far
 
 - A Forge 1.7.10 client entrypoint and `/roxy probe` client command.
-- Legacy block registry names, metadata, opacity, biome columns and light data
+- Legacy block registry names, full EndlessIDs metadata, opacity, biome columns and light data
   are converted to Voxy's voxel layout without changing the world.
 - A private class loader restricts Voxy loading to `VoxelizedSection`, `Mipper`
   and `WorldVoxilizedSectionMipper`. Fabric entrypoints and mixins are not started.
