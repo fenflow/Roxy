@@ -30,6 +30,8 @@ import net.minecraftforge.client.event.RenderGameOverlayEvent;
 import net.minecraftforge.client.event.RenderWorldLastEvent;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.common.config.Configuration;
+import net.rasanovum.roxy.legacy.loader.LoadDiagnostics;
+import net.rasanovum.roxy.legacy.loader.VoxyJarLocator;
 import net.rasanovum.roxy.legacy.loader.VoxyRuntime;
 
 import org.apache.logging.log4j.LogManager;
@@ -74,6 +76,7 @@ public final class LegacyTerrain implements IResourceManagerReloadListener {
     private int distance = 32;
     private boolean enabled = true;
     private boolean failed;
+    private String failureReason;
     private boolean hud;
     private int converted;
     private int restored;
@@ -148,7 +151,8 @@ public final class LegacyTerrain implements IResourceManagerReloadListener {
     }
 
     public String status() {
-        return "Roxy " + (failed ? "ERROR (see log)" : enabled ? "ON" : "OFF")
+        if (failed) return "Roxy disabled: " + failureReason;
+        return "Roxy " + (enabled ? "ON" : "OFF")
             + ": "
             + chunks.size()
             + " cached, "
@@ -254,6 +258,7 @@ public final class LegacyTerrain implements IResourceManagerReloadListener {
         building = null;
         converted = restored = errors = 0;
         failed = false;
+        failureReason = null;
         ticks = 0;
         if (runtime != null) {
             try {
@@ -268,13 +273,15 @@ public final class LegacyTerrain implements IResourceManagerReloadListener {
         try {
             Path root = mc.mcDataDir.toPath()
                 .resolve("roxy");
-            runtime = new VoxyRuntime(root.resolve("voxy.jar"));
+            Path external = VoxyJarLocator.find(mc.mcDataDir.toPath());
+            runtime = new VoxyRuntime(external);
+            LOG.info("Roxy loaded external Voxy JAR: {}", external);
             String identity = mc.isIntegratedServerRunning() ? "local:" + mc.getIntegratedServer()
                 .getFolderName() : "server:" + (mc.func_147104_D() == null ? "unknown" : mc.func_147104_D().serverIP);
             String id = UUID.nameUUIDFromBytes(identity.getBytes(StandardCharsets.UTF_8))
                 .toString();
             store = new LodStore(
-                root.resolve("cache-v1")
+                root.resolve("cache-v2")
                     .resolve(id)
                     .resolve("dim" + world.provider.dimensionId));
             LOG.info(
@@ -284,13 +291,12 @@ public final class LegacyTerrain implements IResourceManagerReloadListener {
                 id);
         } catch (Exception | LinkageError error) {
             failed = true;
-            LOG.error(
-                "Roxy terrain disabled: put the supported original Voxy JAR in .minecraft/roxy/voxy.jar; use Java 21+",
-                error);
+            failureReason = LoadDiagnostics.describe(error);
+            LOG.error("Roxy terrain disabled: " + failureReason + "; " + LoadDiagnostics.environment(), error);
             mc.ingameGUI.getChatGUI()
-                .printChatMessage(
-                    new ChatComponentText(
-                        "Roxy disabled: external Voxy could not load. Use Java 21+ and roxy/voxy.jar. See client log."));
+                .printChatMessage(new ChatComponentText("Roxy disabled: " + failureReason));
+            mc.ingameGUI.getChatGUI()
+                .printChatMessage(new ChatComponentText("Roxy runtime: " + LoadDiagnostics.environment()));
         }
     }
 
@@ -376,6 +382,7 @@ public final class LegacyTerrain implements IResourceManagerReloadListener {
             renderer.render(chunks, distance, event.partialTicks);
         } catch (Exception | LinkageError error) {
             failed = true;
+            failureReason = "Renderer failure: " + LoadDiagnostics.describe(error);
             LOG.error("Roxy renderer disabled after an error", error);
         }
     }
@@ -388,6 +395,7 @@ public final class LegacyTerrain implements IResourceManagerReloadListener {
             && !chunks.isEmpty()
             && event.fogMode >= 0
             && !LegacyTerrainRenderer.hasEnvironmentalFog(event.entity)) {
+            renderer.prepareProjection(distance);
             GL11.glFogf(GL11.GL_FOG_START, distance * 12);
             GL11.glFogf(GL11.GL_FOG_END, distance * 16);
         }

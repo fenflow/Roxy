@@ -27,14 +27,22 @@ public final class ChunkBuild {
         while (sectionY < 16
             && (chunk.getBlockStorageArray()[sectionY] == null || chunk.getBlockStorageArray()[sectionY].isEmpty())) {
             // Empty sections still illuminate exposed faces, including above the highest allocated section.
-            for (int y = 0; y < 4; y++) {
-                for (int z = 0; z < 4; z++) {
-                    for (int x = 0; x < 4; x++) {
-                        int worldY = sectionY * 16 + y * 4 + 2;
+            for (int y = 0; y < LodChunk.SIDE; y++) {
+                for (int z = 0; z < LodChunk.SIDE; z++) {
+                    for (int x = 0; x < LodChunk.SIDE; x++) {
+                        int worldY = sectionY * 16 + y * LodChunk.CELL_SIZE + 1;
                         int sky = world.provider.hasNoSky ? 0
-                            : chunk.getSavedLightValue(EnumSkyBlock.Sky, x * 4 + 2, worldY, z * 4 + 2);
-                        int block = chunk.getSavedLightValue(EnumSkyBlock.Block, x * 4 + 2, worldY, z * 4 + 2);
-                        lights[LodChunk.index(x, sectionY * 4 + y, z)] = (byte) (sky | (block << 4));
+                            : chunk.getSavedLightValue(
+                                EnumSkyBlock.Sky,
+                                x * LodChunk.CELL_SIZE + 1,
+                                worldY,
+                                z * LodChunk.CELL_SIZE + 1);
+                        int block = chunk.getSavedLightValue(
+                            EnumSkyBlock.Block,
+                            x * LodChunk.CELL_SIZE + 1,
+                            worldY,
+                            z * LodChunk.CELL_SIZE + 1);
+                        lights[LodChunk.index(x, sectionY * LodChunk.SIDE + y, z)] = (byte) (sky | (block << 4));
                     }
                 }
             }
@@ -45,13 +53,13 @@ public final class ChunkBuild {
         Object section = runtime
             .convert(chunk.xPosition, sectionY, chunk.zPosition, captured, palette.snapshotMapper());
         long[] mipmaps = runtime.copyData(section);
-        // The external VoxelizedSection ABI places the 4^3 level at offset 4608.
-        for (int y = 0; y < 4; y++) {
-            for (int z = 0; z < 4; z++) {
-                for (int x = 0; x < 4; x++) {
-                    long voxel = mipmaps[4608 + x + 4 * (z + 4 * y)];
+        // The original Voxy ABI places the 8^3 level (two-block cells) at offset 4096.
+        for (int y = 0; y < LodChunk.SIDE; y++) {
+            for (int z = 0; z < LodChunk.SIDE; z++) {
+                for (int x = 0; x < LodChunk.SIDE; x++) {
+                    long voxel = mipmaps[4096 + x + LodChunk.SIDE * (z + LodChunk.SIDE * y)];
                     int id = LegacyMapper.blockId(voxel);
-                    int index = LodChunk.index(x, sectionY * 4 + y, z);
+                    int index = LodChunk.index(x, sectionY * LodChunk.SIDE + y, z);
                     states[index] = id;
                     lights[index] = (byte) LegacyMapper.getLightId(voxel);
                     colors[index] = 0xffffff;
@@ -61,9 +69,9 @@ public final class ChunkBuild {
                             try {
                                 colors[index] = block.colorMultiplier(
                                     world,
-                                    chunk.xPosition * 16 + x * 4 + 2,
-                                    sectionY * 16 + y * 4 + 2,
-                                    chunk.zPosition * 16 + z * 4 + 2);
+                                    chunk.xPosition * 16 + x * LodChunk.CELL_SIZE + 1,
+                                    sectionY * 16 + y * LodChunk.CELL_SIZE + 1,
+                                    chunk.zPosition * 16 + z * LodChunk.CELL_SIZE + 1);
                             } catch (RuntimeException ignored) {
                                 // Tile-entity-specific tint handlers may not accept the representative cell position.
                                 colors[index] = 0xffffff;

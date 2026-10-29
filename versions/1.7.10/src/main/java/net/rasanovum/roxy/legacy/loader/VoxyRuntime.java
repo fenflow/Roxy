@@ -7,6 +7,7 @@ import java.io.InputStream;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -31,9 +32,29 @@ public final class VoxyRuntime implements Closeable {
     private final Field nonAirCount;
 
     public VoxyRuntime(Path path) throws IOException, ReflectiveOperationException {
-        if (!SUPPORTED_SHA256.equals(sha256(path))) {
+        path = path.toAbsolutePath()
+            .normalize();
+        String actualHash;
+        try {
+            actualHash = sha256(path);
+        } catch (NoSuchFileException missing) {
             throw new IOException(
-                "Unsupported Voxy JAR. Expected original Modrinth version H3w2nVdU (0.2.16-beta, 1.21.11).");
+                "Missing external Voxy JAR: " + path
+                    + ". Put the original Voxy 0.2.16-beta for MC 1.21.11 (Modrinth H3w2nVdU) in mods and re-enter the world.",
+                missing);
+        } catch (IOException unreadable) {
+            throw new IOException(
+                "Cannot read external Voxy JAR: " + path + ". " + unreadable.getMessage(),
+                unreadable);
+        }
+        if (!SUPPORTED_SHA256.equals(actualHash)) {
+            throw new IOException(
+                "Unsupported Voxy JAR: " + path
+                    + ". Required: original Voxy 0.2.16-beta for MC 1.21.11 (Modrinth H3w2nVdU). SHA-256 found "
+                    + actualHash
+                    + "; expected "
+                    + SUPPORTED_SHA256
+                    + ".");
         }
         jar = new ZipFile(path.toFile());
         try {

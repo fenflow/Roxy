@@ -35,11 +35,13 @@ public final class LegacyTerrainRenderer {
         private final LodChunk chunk;
         private final int displayList;
         private final int quads;
+        private final LodNeighborhood neighbors;
 
-        private Mesh(LodChunk chunk, int displayList, int quads) {
+        private Mesh(LodChunk chunk, int displayList, int quads, LodNeighborhood neighbors) {
             this.chunk = chunk;
             this.displayList = displayList;
             this.quads = quads;
+            this.neighbors = neighbors;
         }
     }
 
@@ -59,6 +61,25 @@ public final class LegacyTerrainRenderer {
             || camera.isPotionActive(Potion.blindness);
     }
 
+    public void prepareProjection(int distance) {
+        // This runs in RenderFogEvent, before vanilla/Angelica terrain writes depth.
+        // Changing projection only in RenderWorldLast makes LOD depth incomparable
+        // with that existing buffer, allowing distant underground faces to cover near terrain.
+        int mode = GL11.glGetInteger(GL11.GL_MATRIX_MODE);
+        projection.clear();
+        GL11.glGetFloat(GL11.GL_PROJECTION_MATRIX, projection);
+        float n = projection.get(14) / (projection.get(10) - 1);
+        float oldFar = projection.get(14) / (projection.get(10) + 1);
+        float far = distance * 32;
+        if (n > 0 && n < far && oldFar > 0 && oldFar < far) {
+            projection.put(10, -(far + n) / (far - n));
+            projection.put(14, -2 * far * n / (far - n));
+            GL11.glMatrixMode(GL11.GL_PROJECTION);
+            GL11.glLoadMatrix(projection);
+            GL11.glMatrixMode(mode);
+        }
+    }
+
     public void render(Map<Long, LodChunk> chunks, int distance, float partialTicks) {
         Minecraft mc = Minecraft.getMinecraft();
         EntityLivingBase camera = mc.renderViewEntity;
@@ -72,7 +93,7 @@ public final class LegacyTerrainRenderer {
         for (Iterator<Map.Entry<Long, Mesh>> it = meshes.entrySet()
             .iterator(); it.hasNext();) {
             Map.Entry<Long, Mesh> entry = it.next();
-            if (chunks.get(entry.getKey()) != entry.getValue().chunk) {
+            if (!chunks.containsKey(entry.getKey())) {
                 GL11.glDeleteLists(entry.getValue().displayList, 1);
                 it.remove();
             }
@@ -85,15 +106,6 @@ public final class LegacyTerrainRenderer {
         int near = mc.gameSettings.renderDistanceChunks;
         int compiled = 0;
         GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
-        GL11.glMatrixMode(GL11.GL_PROJECTION);
-        GL11.glPushMatrix();
-        projection.clear();
-        GL11.glGetFloat(GL11.GL_PROJECTION_MATRIX, projection);
-        float n = projection.get(14) / (projection.get(10) - 1);
-        float far = Math.max(distance * 32, near * 32);
-        projection.put(10, -(far + n) / (far - n));
-        projection.put(14, -2 * far * n / (far - n));
-        GL11.glLoadMatrix(projection);
         GL11.glMatrixMode(GL11.GL_MODELVIEW);
         GL11.glPushMatrix();
         try {
@@ -122,10 +134,14 @@ public final class LegacyTerrainRenderer {
                 if (!frustum.isBoxInFrustum(chunk.x * 16, 0, chunk.z * 16, chunk.x * 16 + 16, 256, chunk.z * 16 + 16))
                     continue;
                 Mesh mesh = meshes.get(entry.getKey());
-                if (mesh == null) {
-                    if (compiled++ >= 2) continue;
-                    mesh = compile(chunk);
-                    meshes.put(entry.getKey(), mesh);
+                if (mesh == null || !mesh.neighbors.matches(chunk, chunks)) {
+                    if (compiled < 2) {
+                        compiled++;
+                        Mesh replacement = compile(chunk, new LodNeighborhood(chunk, chunks));
+                        if (mesh != null) GL11.glDeleteLists(mesh.displayList, 1);
+                        mesh = replacement;
+                        meshes.put(entry.getKey(), mesh);
+                    } else if (mesh == null) continue;
                 }
                 GL11.glPushMatrix();
                 GL11.glTranslated(chunk.x * 16, 0, chunk.z * 16);
@@ -138,14 +154,11 @@ public final class LegacyTerrainRenderer {
             mc.entityRenderer.disableLightmap(partialTicks);
             GL11.glMatrixMode(GL11.GL_MODELVIEW);
             GL11.glPopMatrix();
-            GL11.glMatrixMode(GL11.GL_PROJECTION);
-            GL11.glPopMatrix();
-            GL11.glMatrixMode(GL11.GL_MODELVIEW);
             GL11.glPopAttrib();
         }
     }
 
-    private Mesh compile(LodChunk chunk) {
+    private Mesh compile(LodChunk chunk, LodNeighborhood neighbors) {
         IIcon[][] icons = new IIcon[chunk.names.length][6];
         for (int i = 1; i < icons.length; i++) {
             Block block = Block.getBlockFromName(chunk.names[i]);
@@ -166,17 +179,18 @@ public final class LegacyTerrainRenderer {
         int quads = 0;
         GL11.glNewList(list, GL11.GL_COMPILE);
         Tessellator t = Tessellator.instance;
+        t.setTranslation(0, 0, 0);
         t.startDrawingQuads();
         for (int y = 0; y < LodChunk.HEIGHT; y++) {
-            for (int z = 0; z < 4; z++) {
-                for (int x = 0; x < 4; x++) {
+            for (int z = 0; z < LodChunk.SIDE; z++) {
+                for (int x = 0; x < LodChunk.SIDE; x++) {
                     int index = LodChunk.index(x, y, z);
                     int state = chunk.states[index];
                     if (state == 0) continue;
                     for (int side = 0; side < 6; side++) {
                         int[] direction = DIRECTIONS[side];
-                        if (chunk.state(x + direction[0], y + direction[1], z + direction[2]) != 0) continue;
-                        int light = chunk.faceLight(x, y, z, x + direction[0], y + direction[1], z + direction[2]);
+                        if (!neighbors.isExposed(x + direction[0], y + direction[1], z + direction[2])) continue;
+                        int light = neighbors.faceLight(x, y, z, x + direction[0], y + direction[1], z + direction[2]);
                         t.setBrightness(((light & 15) << 20) | ((light >>> 4) << 4));
                         int color = chunk.colors[index];
                         float shade = SHADE[side];
@@ -184,7 +198,13 @@ public final class LegacyTerrainRenderer {
                             ((color >>> 16) & 255) * shade / 255,
                             ((color >>> 8) & 255) * shade / 255,
                             (color & 255) * shade / 255);
-                        face(t, x * 4, y * 4, z * 4, side, icons[state][side]);
+                        face(
+                            t,
+                            x * LodChunk.CELL_SIZE,
+                            y * LodChunk.CELL_SIZE,
+                            z * LodChunk.CELL_SIZE,
+                            side,
+                            icons[state][side]);
                         quads++;
                     }
                 }
@@ -192,11 +212,11 @@ public final class LegacyTerrainRenderer {
         }
         t.draw();
         GL11.glEndList();
-        return new Mesh(chunk, list, quads);
+        return new Mesh(chunk, list, quads, neighbors);
     }
 
     private static void face(Tessellator t, double x, double y, double z, int side, IIcon icon) {
-        double a = x + 4, b = y + 4, c = z + 4;
+        double a = x + LodChunk.CELL_SIZE, b = y + LodChunk.CELL_SIZE, c = z + LodChunk.CELL_SIZE;
         double u = icon.getMinU(), v = icon.getMinV(), U = icon.getMaxU(), V = icon.getMaxV();
         switch (side) {
             case 0:

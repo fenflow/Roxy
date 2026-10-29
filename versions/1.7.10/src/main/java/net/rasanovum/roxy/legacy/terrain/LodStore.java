@@ -1,5 +1,7 @@
 package net.rasanovum.roxy.legacy.terrain;
 
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -13,7 +15,7 @@ import java.util.zip.GZIPOutputStream;
 /** Derived client cache only. Never reads or modifies Minecraft region/save data. */
 public final class LodStore {
 
-    private static final int MAGIC = 0x524c4431;
+    private static final int MAGIC = 0x524c4432;
     private final Path directory;
 
     public LodStore(Path directory) throws IOException {
@@ -29,7 +31,8 @@ public final class LodStore {
         Path target = path(chunk.x, chunk.z);
         Path temporary = Files.createTempFile(directory, "chunk-", ".tmp");
         try {
-            try (DataOutputStream out = new DataOutputStream(new GZIPOutputStream(Files.newOutputStream(temporary)))) {
+            try (DataOutputStream out = new DataOutputStream(
+                new BufferedOutputStream(new GZIPOutputStream(Files.newOutputStream(temporary)), 65536))) {
                 out.writeInt(MAGIC);
                 out.writeInt(chunk.x);
                 out.writeInt(chunk.z);
@@ -57,7 +60,8 @@ public final class LodStore {
     public LodChunk read(int x, int z) throws IOException {
         Path file = path(x, z);
         if (!Files.isRegularFile(file)) return null;
-        try (DataInputStream in = new DataInputStream(new GZIPInputStream(Files.newInputStream(file)))) {
+        try (DataInputStream in = new DataInputStream(
+            new BufferedInputStream(new GZIPInputStream(Files.newInputStream(file)), 65536))) {
             if (in.readInt() != MAGIC || in.readInt() != x || in.readInt() != z) {
                 throw new IOException("Invalid LOD cache header");
             }

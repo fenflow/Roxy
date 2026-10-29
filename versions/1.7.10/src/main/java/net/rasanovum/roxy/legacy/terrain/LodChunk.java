@@ -3,8 +3,9 @@ package net.rasanovum.roxy.legacy.terrain;
 /** Immutable, registry-name based output of the external Voxy reduction stage. */
 public final class LodChunk {
 
-    public static final int SIDE = 4;
-    public static final int HEIGHT = 64;
+    public static final int CELL_SIZE = 2;
+    public static final int SIDE = 16 / CELL_SIZE;
+    public static final int HEIGHT = 256 / CELL_SIZE;
     public static final int CELLS = SIDE * SIDE * HEIGHT;
     public final int x;
     public final int z;

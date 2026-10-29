@@ -1,7 +1,5 @@
 package net.rasanovum.roxy.legacy;
 
-import java.nio.file.Path;
-
 import net.minecraft.client.Minecraft;
 import net.minecraft.command.CommandBase;
 import net.minecraft.command.ICommandSender;
@@ -10,6 +8,8 @@ import net.minecraft.util.MathHelper;
 import net.minecraft.world.chunk.Chunk;
 import net.rasanovum.roxy.legacy.bridge.LegacyChunkCapture;
 import net.rasanovum.roxy.legacy.bridge.LegacyPalette;
+import net.rasanovum.roxy.legacy.loader.LoadDiagnostics;
+import net.rasanovum.roxy.legacy.loader.VoxyJarLocator;
 import net.rasanovum.roxy.legacy.loader.VoxyRuntime;
 import net.rasanovum.roxy.legacy.terrain.LegacyTerrain;
 
@@ -65,10 +65,7 @@ public final class RoxyProbeCommand extends CommandBase {
             sender.addChatMessage(new ChatComponentText("Roxy: enter a world first."));
             return;
         }
-        Path original = mc.mcDataDir.toPath()
-            .resolve("roxy")
-            .resolve("voxy.jar");
-        try (VoxyRuntime runtime = new VoxyRuntime(original)) {
+        try (VoxyRuntime runtime = new VoxyRuntime(VoxyJarLocator.find(mc.mcDataDir.toPath()))) {
             int x = MathHelper.floor_double(mc.thePlayer.posX) >> 4;
             int z = MathHelper.floor_double(mc.thePlayer.posZ) >> 4;
             int y = Math.max(0, Math.min(15, MathHelper.floor_double(mc.thePlayer.posY) >> 4));
@@ -83,10 +80,8 @@ public final class RoxyProbeCommand extends CommandBase {
                         + palette.size()
                         + " legacy states."));
         } catch (Exception | LinkageError error) {
-            sender.addChatMessage(
-                new ChatComponentText(
-                    "Roxy probe failed: " + error.getClass()
-                        .getSimpleName() + ": " + error.getMessage() + ". See the client log for details."));
+            sender.addChatMessage(new ChatComponentText("Roxy probe failed: " + LoadDiagnostics.describe(error)));
+            sender.addChatMessage(new ChatComponentText("Roxy runtime: " + LoadDiagnostics.environment()));
             org.apache.logging.log4j.LogManager.getLogger("Roxy")
                 .error("Legacy Voxy bridge probe failed", error);
         }

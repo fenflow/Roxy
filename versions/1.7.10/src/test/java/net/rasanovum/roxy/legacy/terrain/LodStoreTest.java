@@ -65,7 +65,7 @@ public class LodStoreTest {
                 .toPath());
         try (DataOutputStream out = new DataOutputStream(
             new GZIPOutputStream(Files.newOutputStream(store.path(0, 0))))) {
-            out.writeInt(0x524c4431);
+            out.writeInt(0x524c4432);
             out.writeInt(0);
             out.writeInt(0);
             out.writeInt(Integer.MAX_VALUE);

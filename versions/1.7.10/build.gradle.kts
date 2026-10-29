@@ -4,14 +4,15 @@ plugins {
     id("com.gtnewhorizons.gtnhconvention")
 }
 
-version = "0.2.0-gtnh-alpha"
+version = "0.2.1-gtnh-alpha"
 
 dependencies {
     testImplementation("junit:junit:4.13.2")
 }
 
 tasks.withType<Test>().configureEach {
-    javaLauncher.set(javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(21)) })
+    val testJava = providers.gradleProperty("roxyTestJava").getOrElse("21").toInt()
+    javaLauncher.set(javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(testJava)) })
     providers.gradleProperty("roxyVoxyJar").orNull?.let { systemProperty("roxy.voxyJar", it) }
     testLogging { events("passed", "skipped", "failed") }
 }

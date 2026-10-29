@@ -1,7 +1,9 @@
 package net.rasanovum.roxy.legacy.loader;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -17,13 +19,42 @@ import org.junit.Test;
 
 public class VoxyRuntimeTest {
 
-    @Test(expected = IOException.class)
+    @Test
     public void rejectsUnknownBinaryBeforeLoadingAnyCode() throws Exception {
         Path invalid = Files.createTempFile("roxy-invalid-", ".jar");
         try {
             new VoxyRuntime(invalid);
+            fail("Expected unsupported JAR rejection");
+        } catch (IOException error) {
+            String message = LoadDiagnostics.describe(error);
+            assertTrue(message.contains("Unsupported Voxy JAR"));
+            assertTrue(message.contains("H3w2nVdU"));
+            assertTrue(
+                message.contains(
+                    invalid.toAbsolutePath()
+                        .toString()));
+            assertTrue(message.contains(VoxyRuntime.sha256(invalid)));
+            assertFalse(message.contains("requires Java"));
         } finally {
             Files.deleteIfExists(invalid);
+        }
+    }
+
+    @Test
+    public void reportsMissingJarWithExactInstallationPath() throws Exception {
+        Path directory = Files.createTempDirectory("roxy-missing-");
+        Path missing = directory.resolve("voxy.jar");
+        try {
+            new VoxyRuntime(missing);
+            fail("Expected missing JAR rejection");
+        } catch (IOException error) {
+            String message = LoadDiagnostics.describe(error);
+            assertTrue(message.contains("Missing external Voxy JAR"));
+            assertTrue(message.contains(missing.toString()));
+            assertTrue(message.contains("in mods"));
+            assertFalse(message.contains("requires Java"));
+        } finally {
+            Files.deleteIfExists(directory);
         }
     }
 
@@ -107,6 +138,22 @@ public class VoxyRuntimeTest {
             long[] reduced = runtime.copyData(patterned);
             for (int i = 0; i < 64; i++) {
                 assertEquals(LegacyMapper.pack(stone, i, 15, 0), reduced[4608 + i]);
+            }
+            // The renderer now consumes the finer two-block level. Use block IDs to
+            // distinguish all 512 coarse cells, beyond the temporary biome palette range.
+            for (int y = 0; y < 16; y++) {
+                for (int z = 0; z < 16; z++) {
+                    for (int x = 0; x < 16; x++) {
+                        int cell = (x / 2) + 8 * ((z / 2) + 8 * (y / 2));
+                        int state = palette.register("test:state_" + cell, 0, 255);
+                        input[x + 16 * (z + 16 * y)] = LegacyMapper.pack(state, 0, 15, 0);
+                    }
+                }
+            }
+            long[] fine = runtime.copyData(runtime.convert(0, 0, 0, input, palette.snapshotMapper()));
+            for (int i = 0; i < 512; i++) {
+                int state = palette.register("test:state_" + i, 0, 255);
+                assertEquals(LegacyMapper.pack(state, 0, 15, 0), fine[4096 + i]);
             }
         }
         assertEquals("The original JAR must remain unchanged", before, VoxyRuntime.sha256(path));

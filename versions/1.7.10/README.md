@@ -5,7 +5,7 @@ original Voxy JAR. It uses Voxy's original voxel reduction code with a new legac
 rendering backend and client cache. It does **not** run Voxy's modern GPU renderer,
 world engine, model baker, Fabric entrypoint, or mixins.
 
-The legacy backend displays textured, four-block LOD cells for terrain your client
+The legacy backend displays textured, two-block LOD cells for terrain your client
 has visited. Nearby blocks, machines, entities, and gameplay remain rendered by
 GTNH/Angelica. This is an early playable alpha, not feature parity with
 modern Roxy/Voxy. See [validation](VALIDATION.md) for the exact tests and limits.
@@ -13,16 +13,49 @@ modern Roxy/Voxy. See [validation](VALIDATION.md) for the exact tests and limits
 ## Install
 
 1. Use the **Java 17–26 edition of GTNH 2.9.0-beta-3**, with **Java 21 or newer**.
-2. Put `roxy-0.2.0-gtnh-alpha.jar` in the instance's `.minecraft/mods` folder.
+2. Put `roxy-0.2.1-gtnh-alpha.jar` in the instance's `.minecraft/mods` folder.
    Remove older Roxy probe JARs from that folder.
 3. Obtain the original [Voxy 0.2.16-beta for Minecraft 1.21.11](https://modrinth.com/mod/voxy/version/H3w2nVdU)
-   separately and place it at **`.minecraft/roxy/voxy.jar`**.
+   separately and put it in the **same `.minecraft/mods` folder**. Keep its original
+   filename; Roxy identifies Voxy by its `fabric.mod.json` metadata and verifies
+   the supported binary's SHA-256. The `mods/1.7.10` subfolder is also searched.
 4. Launch the pack and explore. LODs are collected over several seconds as chunks
    arrive. They remain available after leaving an area or restarting the game.
 
-Do not put the modern Voxy JAR in Forge's `mods` folder. Java 8 and Java 17 cannot
-execute its Java 21 classes. An unsupported or missing external JAR disables Roxy
+Java 8 and Java 17 cannot execute Voxy's Java 21 classes.
+An unsupported or missing external JAR disables Roxy
 with a client message; the rest of GTNH can still run.
+
+Both JARs go in the mods folder:
+
+```text
+.minecraft/mods/
+  roxy-0.2.1-gtnh-alpha.jar
+  voxy-0.2.16-beta+1.21.11.jar
+```
+
+In Prism, open the selected instance's Minecraft folder to find the correct
+`.minecraft`. No renaming is needed. Existing 0.2.0 installations using
+`.minecraft/roxy/voxy.jar` still work as a fallback when no Voxy is found in mods.
+
+### Startup troubleshooting
+
+Version 0.2.0 displayed "Use Java 21+" for **every** startup exception, including
+a missing external JAR. That message alone does not mean Java is too old.
+Version 0.2.1 reports the actual exception, the checked path, and the running JVM;
+`/roxy status` repeats the failure and `/roxy probe` checks the external JAR again.
+
+- **No external Voxy JAR found / NoSuchFileException:** put the original linked
+  Voxy release in this instance's `mods` folder. Re-enter the world after
+  correcting it, or relaunch the instance. Roxy logs the selected JAR's path.
+- **Unsupported Voxy JAR:** use the exact linked release below. Other Voxy
+  releases, including ones with the same version number for a different Minecraft
+  version, are not accepted. The error includes the actual and expected SHA-256.
+- **UnsupportedClassVersionError:** select Java 21+ for this instance in the
+  launcher. Installing a newer Java without selecting it does not change the JVM
+  used by the game.
+- Other errors retain their exception and root cause. Check
+  `logs/fml-client-latest.log`; changing Angelica cannot fix a missing external JAR.
 
 Only Modrinth version `H3w2nVdU` is accepted. Its SHA-256 is:
 
@@ -42,11 +75,13 @@ Increasing LOD distance does not generate or download unexplored terrain. On a
 server, only chunks actually sent to the client can be captured.
 
 Configuration lives in `.minecraft/config/roxy.cfg`. Derived terrain files live
-under `.minecraft/roxy/cache-v1/<world-or-server-hash>/dim<id>`. Cache files store
+under `.minecraft/roxy/cache-v2/<world-or-server-hash>/dim<id>`. Cache files store
 registry names and full metadata, not unstable numeric Forge block IDs. Biome
 tints are resolved while capturing; Voxy's temporary biome IDs are not persisted.
 If a server resets its world at the same address, remove its derived cache while
 the game is closed. Roxy never writes to Minecraft region files or save data.
+The old four-block `cache-v1` is left untouched. Explore again to populate the
+finer cache after upgrading from 0.2.0.
 
 ## Supported target
 
@@ -59,11 +94,11 @@ the game is closed. Roxy never writes to Minecraft region files or save data.
 | Hodgepodge | 2.7.196 |
 | EndlessIDs | 1.7.4, including 16-bit metadata |
 | LWJGL3ify / LWJGL | 3.0.31 / 3.4.2 |
-| Runtime used for validation | Java 21.0.13 |
+| Runtimes used for validation | Java 21.0.13 and 25.0.5 |
 
 ## Current limits
 
-- Far terrain uses textured cubes at four-block resolution. Tile-dependent
+- Far terrain uses textured cubes at two-block resolution. Tile-dependent
   machine appearances, non-cube models, connected textures, and exact foliage
   shapes are approximated. Near terrain retains its normal detailed models.
 - Distant fluids are opaque approximations. Shader-pack integration is not
@@ -106,7 +141,7 @@ compiler/test toolchains:
 .\gradlew.bat build '-ProxyVoxyJar=C:/path/to/voxy-0.2.16-beta+1.21.11.jar'
 ```
 
-The production JAR is `build/libs/roxy-0.2.0-gtnh-alpha.jar`; do not install the
+The production JAR is `build/libs/roxy-0.2.1-gtnh-alpha.jar`; do not install the
 `-dev` or `-sources` JAR. Omitting `roxyVoxyJar` skips the external-binary integration
 test. No build task downloads or republishes Voxy.
 

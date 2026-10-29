@@ -1,4 +1,45 @@
-# GTNH terrain validation — 2026-10-29
+# GTNH terrain validation
+
+## 0.2.1 installation and terrain fixes — 2026-10-30
+
+- Reproduced a missing external JAR with a regression test. It now reports
+  the missing dependency, the absolute checked path, and installation steps.
+  The previous generic Java warning was emitted for every startup exception.
+- Verified unsupported-JAR errors include the required release and both hashes;
+  class-version errors retain the JVM exception and running Java version;
+  wrapped ABI failures and cache access errors are not mislabeled as Java errors.
+- Voxy is identified by its Fabric mod ID in `mods` or `mods/1.7.10`, without
+  renaming. Tests cover arbitrary filenames, unrelated/broken JARs, selecting the
+  pinned binary among multiple versions, and the old location as a fallback.
+- All 23 tests passed on Java 21.0.13 and 25.0.5, including the real external Voxy reduction
+  and discovery tests with no skipped tests. Java 25.0.1 itself was not tested here.
+- Full build, Checkstyle, Spotless, and `verifyNoBundledVoxy` passed.
+- Cross-chunk face culling suppresses solid interior walls; unknown neighbors
+  are not treated as air. Lighting can sample adjacent chunks. Neighbor changes
+  invalidate affected meshes, retaining the previous mesh until its replacement
+  is ready. Regression tests cover solid seams, real cliffs, negative coordinates,
+  unknown neighbors, lighting, and neighbor replacement.
+- The projection is extended before near terrain writes depth, so LODs share its
+  depth mapping. Terrain now uses the external reducer's two-block level, whose
+  offset and spatial ordering are checked against the real external JAR.
+- The cache format/directory is v2. Old caches are preserved; terrain is recaptured.
+  Buffered cache I/O avoids byte-at-a-time compression overhead.
+- GTNH 2.9.0-beta-3 with Angelica 2.2.10 and Java 25.0.5 loaded the original Voxy
+  filename from `mods` in a world with the old fallback path disabled.
+- Visually checked the rebuilt cache in the disposable world from elevated,
+  downward-facing views and after moving the camera 64 blocks. Mountain, snow,
+  and forest LODs remained behind nearer terrain without the tall interior walls.
+  Toggling LODs off/on and re-entering the world worked; 192 cached chunks restored
+  on re-entry, then capture reached 357 chunks after moving, with zero reported
+  Roxy errors. A lower view at Y=95 retained detailed near trees in front of the
+  LOD mountain and forest. The near/far resolution and fluid transitions remain
+  visible; this is not seamless full-model rendering.
+  This checks the identified defects in the local fixture, not the reporter's
+  exact world, resource packs, or Angelica 2.1.61.
+- 0.2.1 JAR SHA-256:
+  `7019e993a41c3fc3c3619abc3de451c5466b108075f5bb9b2861f0f394547853`.
+
+## 0.2.0 in-game validation — 2026-10-29
 
 This module now has a legacy terrain backend. The external Voxy JAR supplies its
 original voxel reduction; Voxy's modern GPU renderer and world engine are not run.
