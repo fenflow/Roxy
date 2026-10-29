@@ -11,8 +11,9 @@ import net.minecraft.world.chunk.Chunk;
 import net.rasanovum.roxy.legacy.bridge.LegacyChunkCapture;
 import net.rasanovum.roxy.legacy.bridge.LegacyPalette;
 import net.rasanovum.roxy.legacy.loader.VoxyRuntime;
+import net.rasanovum.roxy.legacy.terrain.LegacyTerrain;
 
-/** Explicit diagnostic only: does not enable an incomplete renderer or alter world data. */
+/** Client-local rendering controls and an explicit external binary diagnostic. */
 public final class RoxyProbeCommand extends CommandBase {
 
     @Override
@@ -22,7 +23,7 @@ public final class RoxyProbeCommand extends CommandBase {
 
     @Override
     public String getCommandUsage(ICommandSender sender) {
-        return "/roxy probe - test the Voxy chunk bridge (no LOD rendering yet)";
+        return "/roxy status | on | off | hud | distance <8-64> | probe";
     }
 
     @Override
@@ -32,6 +33,29 @@ public final class RoxyProbeCommand extends CommandBase {
 
     @Override
     public void processCommand(ICommandSender sender, String[] arguments) {
+        LegacyTerrain terrain = LegacyTerrain.INSTANCE;
+        if (arguments.length == 1) {
+            if ("on".equals(arguments[0]) || "off".equals(arguments[0])) {
+                terrain.setEnabled("on".equals(arguments[0]));
+            } else if ("hud".equals(arguments[0])) {
+                terrain.toggleHud();
+            } else if (!"status".equals(arguments[0]) && !"probe".equals(arguments[0])) {
+                sender.addChatMessage(new ChatComponentText(getCommandUsage(sender)));
+                return;
+            }
+            if (!"probe".equals(arguments[0])) {
+                sender.addChatMessage(new ChatComponentText(terrain.status()));
+                return;
+            }
+        } else if (arguments.length == 2 && "distance".equals(arguments[0])) {
+            try {
+                terrain.setDistance(Integer.parseInt(arguments[1]));
+                sender.addChatMessage(new ChatComponentText(terrain.status()));
+            } catch (NumberFormatException invalid) {
+                sender.addChatMessage(new ChatComponentText(getCommandUsage(sender)));
+            }
+            return;
+        }
         if (arguments.length != 1 || !"probe".equals(arguments[0])) {
             sender.addChatMessage(new ChatComponentText(getCommandUsage(sender)));
             return;
@@ -57,7 +81,7 @@ public final class RoxyProbeCommand extends CommandBase {
                     "Roxy bridge passed: " + runtime.copyData(section).length
                         + " voxels across 5 LOD levels, "
                         + palette.size()
-                        + " legacy states. Renderer not implemented yet."));
+                        + " legacy states."));
         } catch (Exception | LinkageError error) {
             sender.addChatMessage(
                 new ChatComponentText(

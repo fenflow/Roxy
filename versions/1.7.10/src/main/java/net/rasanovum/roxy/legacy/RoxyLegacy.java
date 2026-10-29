@@ -7,7 +7,7 @@ import cpw.mods.fml.relauncher.SideOnly;
 
 @Mod(
     modid = "roxy",
-    name = "Roxy GTNH Bridge Probe",
+    name = "Roxy GTNH",
     version = Tags.VERSION,
     acceptedMinecraftVersions = "[1.7.10]",
     acceptableRemoteVersions = "*")
@@ -17,8 +17,8 @@ public final class RoxyLegacy {
     @SideOnly(Side.CLIENT)
     public void init(FMLInitializationEvent event) {
         net.minecraftforge.client.ClientCommandHandler.instance.registerCommand(new RoxyProbeCommand());
+        net.rasanovum.roxy.legacy.terrain.LegacyTerrain.INSTANCE.initialize();
         org.apache.logging.log4j.LogManager.getLogger("Roxy")
-            .info(
-                "Roxy 1.7.10 bridge probe initialized. LOD rendering is not implemented; use /roxy probe for diagnostics.");
+            .info("Roxy 1.7.10 terrain compatibility initialized; use /roxy status for diagnostics.");
     }
 }

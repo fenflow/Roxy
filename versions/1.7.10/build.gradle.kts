@@ -4,7 +4,7 @@ plugins {
     id("com.gtnewhorizons.gtnhconvention")
 }
 
-version = "0.1.0-gtnh-dev"
+version = "0.2.0-gtnh-alpha"
 
 dependencies {
     testImplementation("junit:junit:4.13.2")

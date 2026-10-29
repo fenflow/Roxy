@@ -1,5 +1,5 @@
-> **GTNH / 1.7.10 development branch:** [Legacy bridge status and build instructions](versions/1.7.10/README.md).
-> This branch contains an experimental external-Voxy compatibility probe. Distant-terrain rendering is not implemented yet.
+> **GTNH / 1.7.10 development branch:** [Legacy terrain alpha and installation instructions](versions/1.7.10/README.md).
+> This branch contains an external-Voxy terrain compatibility alpha with a legacy renderer. See its README for installation, supported features, and limits.
 
 <h1 align="center">Roxy<br>
 <a href="https://www.curseforge.com/minecraft/mc-mods/roxy"><img src="https://img.shields.io/badge/CurseForge-1.21.1-orange?style=for-the-badge"></a>

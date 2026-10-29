@@ -92,6 +92,22 @@ public class VoxyRuntimeTest {
                 ((Long) sparse.getClass()
                     .getMethod("get", int.class, int.class, int.class, int.class)
                     .invoke(sparse, 0, 15, 3, 7)).longValue());
+
+            // Each coarse cell gets a distinct uniform source region. This checks the renderer's
+            // external ABI offset and x/z/y ordering without reimplementing Voxy's reduction.
+            for (int y = 0; y < 16; y++) {
+                for (int z = 0; z < 16; z++) {
+                    for (int x = 0; x < 16; x++) {
+                        int biome = (x / 4) + 4 * ((z / 4) + 4 * (y / 4));
+                        input[x + 16 * (z + 16 * y)] = LegacyMapper.pack(stone, biome, 15, 0);
+                    }
+                }
+            }
+            Object patterned = runtime.convert(0, 0, 0, input, palette.snapshotMapper());
+            long[] reduced = runtime.copyData(patterned);
+            for (int i = 0; i < 64; i++) {
+                assertEquals(LegacyMapper.pack(stone, i, 15, 0), reduced[4608 + i]);
+            }
         }
         assertEquals("The original JAR must remain unchanged", before, VoxyRuntime.sha256(path));
     }

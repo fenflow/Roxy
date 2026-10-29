@@ -2,8 +2,8 @@
   "modListVersion": 2,
   "modList": [{
     "modid": "${modId}",
-    "name": "${modName} Bridge Probe",
-    "description": "Experimental 1.7.10 compatibility probe for an external Voxy JAR. LOD rendering is not implemented.",
+    "name": "${modName}",
+    "description": "Legacy terrain rendering compatibility for an external Voxy JAR. Requires Java 21+ and the separately supplied supported Voxy binary.",
     "version": "${modVersion}",
     "mcversion": "${minecraftVersion}",
     "url": "https://github.com/fenflow/Roxy",

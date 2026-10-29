@@ -10,10 +10,14 @@ public final class LegacyPalette {
 
     private final Map<String, Integer> ids = new LinkedHashMap<String, Integer>();
     private final List<Integer> opacities = new ArrayList<Integer>();
+    private final List<String> names = new ArrayList<String>();
+    private final List<Integer> metadataValues = new ArrayList<Integer>();
 
     public LegacyPalette() {
         ids.put("minecraft:air@0:0", 0);
         opacities.add(0);
+        names.add("minecraft:air");
+        metadataValues.add(0);
     }
 
     public int register(String registryName, int metadata, int opacity) {
@@ -35,7 +39,17 @@ public final class LegacyPalette {
         }
         ids.put(key, next);
         opacities.add(boundedOpacity);
+        names.add(registryName);
+        metadataValues.add(metadata);
         return next;
+    }
+
+    public String name(int id) {
+        return names.get(id);
+    }
+
+    public int metadata(int id) {
+        return metadataValues.get(id);
     }
 
     public LegacyMapper snapshotMapper() {

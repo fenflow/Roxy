@@ -1,97 +1,118 @@
-# Roxy 1.7.10 / GTNH compatibility work
+# Roxy 1.7.10 / GTNH — terrain compatibility alpha
 
-**Status: experimental bridge probe, not a working LOD renderer. Do not install this expecting distant terrain.**
+This branch supplies a Forge 1.7.10 compatibility layer for a separately installed,
+original Voxy JAR. It uses Voxy's original voxel reduction code with a new legacy
+rendering backend and client cache. It does **not** run Voxy's modern GPU renderer,
+world engine, model baker, Fabric entrypoint, or mixins.
 
-This branch follows Roxy's external-JAR compatibility approach. Its source and
-build artifacts do not contain Voxy's implementation or assets. The original
-Voxy JAR is supplied separately and stays unchanged on disk. Roxy currently loads
-three original classes through an isolated loader and redirects their Mapper
-references to an independently implemented legacy adapter in memory. Voxy's own
-code performs the LOD reduction.
+The legacy backend displays textured, four-block LOD cells for terrain your client
+has visited. Nearby blocks, machines, entities, and gameplay remain rendered by
+GTNH/Angelica. This is an early playable alpha, not feature parity with
+modern Roxy/Voxy. See [validation](VALIDATION.md) for the exact tests and limits.
 
-This distribution arrangement avoids including Voxy in the Roxy artifact. It is
-not a statement of permission from Voxy's author or a legal determination about
-runtime interoperability. Voxy's release declares All Rights Reserved.
+## Install
 
-## Exact target
+1. Use the **Java 17–26 edition of GTNH 2.9.0-beta-3**, with **Java 21 or newer**.
+2. Put `roxy-0.2.0-gtnh-alpha.jar` in the instance's `.minecraft/mods` folder.
+   Remove older Roxy probe JARs from that folder.
+3. Obtain the original [Voxy 0.2.16-beta for Minecraft 1.21.11](https://modrinth.com/mod/voxy/version/H3w2nVdU)
+   separately and place it at **`.minecraft/roxy/voxy.jar`**.
+4. Launch the pack and explore. LODs are collected over several seconds as chunks
+   arrive. They remain available after leaving an area or restarting the game.
 
-| Component | Version |
+Do not put the modern Voxy JAR in Forge's `mods` folder. Java 8 and Java 17 cannot
+execute its Java 21 classes. An unsupported or missing external JAR disables Roxy
+with a client message; the rest of GTNH can still run.
+
+Only Modrinth version `H3w2nVdU` is accepted. Its SHA-256 is:
+
+`7f8226cf64a4f5dc064e1075965714b718ac5f42fb28f826135a37c64e66e10b`
+
+## Controls
+
+- `/roxy on` and `/roxy off`: toggle distant drawing. Capturing continues when off.
+- `/roxy status`: cache, capture, restored-chunk, drawing, and error counters.
+- `/roxy hud`: toggle the two-line diagnostic overlay. F3 also shows it.
+- `/roxy distance 32`: set the LOD radius, between 8 and 64 chunks.
+- `/roxy probe`: independently test the external binary on the current section.
+
+The default LOD radius is 32 chunks (512 blocks). The normal video render distance
+controls where LODs begin. Set it below the LOD radius to see the difference.
+Increasing LOD distance does not generate or download unexplored terrain. On a
+server, only chunks actually sent to the client can be captured.
+
+Configuration lives in `.minecraft/config/roxy.cfg`. Derived terrain files live
+under `.minecraft/roxy/cache-v1/<world-or-server-hash>/dim<id>`. Cache files store
+registry names and full metadata, not unstable numeric Forge block IDs. Biome
+tints are resolved while capturing; Voxy's temporary biome IDs are not persisted.
+If a server resets its world at the same address, remove its derived cache while
+the game is closed. Roxy never writes to Minecraft region files or save data.
+
+## Supported target
+
+| Component | Tested version |
 | --- | --- |
-| Supplied modpack | GT New Horizons 2.9.0-beta-3 |
+| GTNH | 2.9.0-beta-3 |
 | Minecraft / Forge | 1.7.10 / 10.13.4.1614 |
-| Angelica | 2.2.10 |
+| Angelica | 2.2.10, shader packs disabled |
 | GTNHLib | 0.11.46 |
 | Hodgepodge | 2.7.196 |
-| EndlessIDs | 1.7.4 (extended block IDs, 16-bit metadata and biomes) |
+| EndlessIDs | 1.7.4, including 16-bit metadata |
 | LWJGL3ify / LWJGL | 3.0.31 / 3.4.2 |
-| Runtime Java | 21+ in the Java 17-26 pack |
-| External Voxy | 0.2.16-beta for 1.21.11, Modrinth H3w2nVdU |
+| Runtime used for validation | Java 21.0.13 |
 
-The external Voxy classes require Java 21. The supplied Java 8 pack and Java 17
-runtime cannot execute them. The adapter itself compiles to Java 8 bytecode for
-compatibility with legacy Forge tooling.
+## Current limits
 
-Pinned Voxy SHA-256:
-`7f8226cf64a4f5dc064e1075965714b718ac5f42fb28f826135a37c64e66e10b`.
+- Far terrain uses textured cubes at four-block resolution. Tile-dependent
+  machine appearances, non-cube models, connected textures, and exact foliage
+  shapes are approximated. Near terrain retains its normal detailed models.
+- Distant fluids are opaque approximations. Shader-pack integration is not
+  implemented; distant drawing suspends when Angelica/Iris has a pack active.
+- Surface lighting uses the adjacent air cell and GTNH's live lightmap. LODs are
+  hidden underwater, in lava, and during blindness to preserve environmental fog.
+- This is a client-observation cache, with no server importer, world generation,
+  modern Voxy database support, GPU occlusion traversal, or adaptive LOD hierarchy.
+- Capture runs on the client thread, at most two sections and a soft 4 ms budget
+  per tick. A single expensive mod block callback can exceed that budget. Nearby
+  chunks refresh approximately every five seconds; others approximately every
+  minute, subject to queue backlog.
+- Disk IO is asynchronous and bounded; GPU uploads are limited to two chunks per
+  frame. At most 4,096 chunk snapshots are retained in memory. The disk cache grows
+  with explored terrain. Cache files use compressed, atomic replacement.
+- Other GTNH versions, dedicated multiplayer servers, and all modded dimensions
+  require additional validation. A successful build is not evidence for them.
 
-## Build and test
+## External-JAR boundary
 
-This is a separate Gradle build. The repository's root build still targets
-modern NeoForge and must not be used for the legacy module.
+No Voxy classes, shaders, assets, source, nested dependencies, or transformed
+class files are distributed. An isolated loader reads three classes from the
+user's original JAR: `VoxelizedSection`, `Mipper`, and
+`WorldVoxilizedSectionMipper`. It changes Mapper references in memory to an
+independent legacy ABI adapter. Voxy's original implementation computes the LOD
+values. The external JAR remains unchanged on disk.
 
-Use JDK 25 for Gradle (required by GTNH build conventions 2.0.33), with JDK 8 and
-JDK 21 discoverable as toolchains. From this directory:
+The legacy cache, lifecycle hooks, block/metadata mapping, and draw backend are
+compatibility code in Roxy's namespace. `verifyNoBundledVoxy` checks the built
+artifact for Voxy namespaces, assets, and nested JARs. This distribution does not
+include permission from Voxy's author; the separate Voxy release declares ARR.
+
+## Build
+
+This directory is an independent Gradle build. The root build remains the modern
+NeoForge project. Use JDK 25 for Gradle, with JDK 8 and JDK 21 discoverable as
+compiler/test toolchains:
 
 ```powershell
-.\gradlew.bat build
-.\gradlew.bat test '-ProxyVoxyJar=C:/path/to/voxy-0.2.16-beta+1.21.11.jar'
+.\gradlew.bat build '-ProxyVoxyJar=C:/path/to/voxy-0.2.16-beta+1.21.11.jar'
 ```
 
-The binary integration test is explicitly skipped without `roxyVoxyJar`. It must
-pass with that property before claiming that the external Voxy integration was
-tested. No task downloads or republishes Voxy. `verifyNoBundledVoxy` checks the
-mod JAR for Voxy classes, assets, and nested JARs.
-
-## What works so far
-
-- A Forge 1.7.10 client entrypoint and `/roxy probe` client command.
-- Legacy block registry names, full EndlessIDs metadata, opacity, biome columns and light data
-  are converted to Voxy's voxel layout without changing the world.
-- A private class loader restricts Voxy loading to `VoxelizedSection`, `Mipper`
-  and `WorldVoxilizedSectionMipper`. Fabric entrypoints and mixins are not started.
-- Runtime Mapper rebinding allows Voxy's original reduction code to create all
-  five LOD levels, including empty, uniform and sparse chunk sections.
-- Unknown external binaries are rejected before loading code.
-
-For a developer probe only, put the reobfuscated `build/libs/roxy-0.1.0-gtnh-dev.jar`
-in a **test instance's** `mods` directory. Put the original Voxy JAR at
-`.minecraft/roxy/voxy.jar`, outside `mods`, then run `/roxy probe` in a world on
-Java 21+. Do not put modern Voxy directly in Forge 1.7.10's `mods` folder.
-
-The probe samples the player's current 16-cubed section and discards the result.
-Its block and biome IDs are temporary, so it must not be connected to persistent
-storage without adding stable world-scoped mappings.
-
-## Required before this is a usable backport
-
-1. Persistent world/dimension identity, block and biome mappings, chunk updates,
-   unload/reload behavior, background ingestion and bounded queues.
-2. Adapters for Voxy's world engine, storage and lifecycle, replacing modern
-   Minecraft/NBT/registry dependencies at the runtime boundary.
-3. Legacy `RenderBlocks` / mod block geometry and texture-atlas capture for Voxy's
-   model baker, including GTNH metadata and tile-dependent block appearances.
-4. Voxy GPU renderer initialization and an Angelica 2.2.10 render hook, framebuffer,
-   depth, camera, fog, GL-state and resource-reload adapters.
-5. Separate integration with Angelica's shader pipeline and validation of world
-   switching, terrain updates, fluids, lighting and GL resource cleanup.
-6. In-game visual and performance tests in the supplied GTNH pack.
-
-The renderer is not enabled by this build. A passing build or probe is not evidence
-that any of the unfinished rendering work is functional.
+The production JAR is `build/libs/roxy-0.2.0-gtnh-alpha.jar`; do not install the
+`-dev` or `-sources` JAR. Omitting `roxyVoxyJar` skips the external-binary integration
+test. No build task downloads or republishes Voxy.
 
 ## References
 
 - [Roxy upstream](https://github.com/RasaNovum/Roxy)
-- [Original Voxy release and ARR declaration](https://modrinth.com/mod/voxy/version/H3w2nVdU)
+- [Voxy external release](https://modrinth.com/mod/voxy/version/H3w2nVdU)
 - [GTNH build template](https://github.com/GTNewHorizons/ExampleMod1.7.10)
 - [Angelica](https://github.com/GTNewHorizons/Angelica)
