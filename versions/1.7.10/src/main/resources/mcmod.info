@@ -1,0 +1,16 @@
+{
+  "modListVersion": 2,
+  "modList": [{
+    "modid": "${modId}",
+    "name": "${modName} Bridge Probe",
+    "description": "Experimental 1.7.10 compatibility probe for an external Voxy JAR. LOD rendering is not implemented.",
+    "version": "${modVersion}",
+    "mcversion": "${minecraftVersion}",
+    "url": "https://github.com/fenflow/Roxy",
+    "authorList": ["RasaNovum", "fenflow"],
+    "credits": "Voxy by Cortex is a separately supplied dependency and is not distributed with this mod.",
+    "requiredMods": [],
+    "dependencies": [],
+    "useDependencyInformation": false
+  }]
+}

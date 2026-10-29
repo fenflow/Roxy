@@ -26,3 +26,8 @@ run/
 /verification/
 /.roxy-macos/
 /scripts/
+**/*.log
+/versions/1.7.10/*-api.txt
+/versions/1.7.10/voxy-dependencies.txt
+/versions/1.7.10/private-libs/
+/versions/1.7.10/reports/
