@@ -1,6 +1,6 @@
 # Modern engine bridge development
 
-Version 0.3.0 uses the original external Voxy renderer as its normal terrain
+Version 0.4.0 uses the original external Voxy renderer as its normal terrain
 engine. The 0.2.x classes remain for historical tests and the reducer probe, but
 LegacyTerrain is not initialized. See README.md and VALIDATION.md for the tested
 configuration and explicit coverage limits.
@@ -29,6 +29,8 @@ on disconnect or resource reload. Development hot loading is opt-in through
 - `/roxy reload`: full game resource reload and model recapture.
 - `-Droxy.rendererDiagnostics=true`: original GPU counters and source depth summary
   every 120 frames in `roxy/render-diagnostics.txt`. This adds readback overhead.
+- With diagnostics enabled, `/roxy testview <yaw> <pitch>` fixes a reproducible
+  camera direction for visual checks (legacy `/tp` has no rotation arguments).
 
 Probes are not substitutes for observing the actual terrain renderer. Test through
 the installed production JAR, with no development-loader or memory override flags.
@@ -49,6 +51,19 @@ the installed production JAR, with no development-loader or memory override flag
   vertex arrays, framebuffers, pixel storage, and depth/stencil state.
 - Model capture precedes asynchronous Voxy model jobs; those jobs must not invoke
   Minecraft block renderers from worker threads.
+- Capture received packets after `Chunk.fillChunk` completes. Retain unfinished
+  chunks after unload, prioritize nonempty upper sections fairly, and merge block
+  updates into pending work. Run original Voxy ingestion on its bounded worker
+  queue; Minecraft block/model callbacks stay on the client thread. Preserve the
+  observation queue when changing shaders in the same world.
+- Treat mod model callbacks as a fault boundary. Cache a static texture fallback
+  once per model after an ordinary exception or linkage error. Do not swallow VM
+  errors, and do not fabricate tile entities merely to run unsafe renderers.
+- Shader packs use their own native Voxy interface. Publish Voxy matrices before
+  Angelica updates custom uniforms, render before Angelica's deferred phase, and
+  skip shadow passes. Restore indexed blending and all touched texture, sampler,
+  image, UBO and SSBO state. Validate shader contracts before allocating Voxy's
+  renderer services; keep all pack-specific decisions in the external pack.
 - RenderBlocks may bake directional shade into vertex colour without setting
   GTNHLib's shade flag. Recover that indication before supplying the original
   baker. Fluid snapshots provide the separate viewing-face surroundings expected

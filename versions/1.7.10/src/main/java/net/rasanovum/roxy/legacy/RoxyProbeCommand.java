@@ -34,6 +34,13 @@ public final class RoxyProbeCommand extends CommandBase {
 
     @Override
     public void processCommand(ICommandSender sender, String[] arguments) {
+        if (Boolean.getBoolean("roxy.rendererDiagnostics") && arguments.length == 3
+            && "testview".equals(arguments[0])) {
+            net.minecraft.entity.player.EntityPlayer player = Minecraft.getMinecraft().thePlayer;
+            player.rotationYaw = player.prevRotationYaw = Float.parseFloat(arguments[1]);
+            player.rotationPitch = player.prevRotationPitch = Float.parseFloat(arguments[2]);
+            return;
+        }
         if (arguments.length == 1 && ("modern".equals(arguments[0]) || "modernstatus".equals(arguments[0]))) {
             net.rasanovum.roxy.legacy.terrain.ModernTerrain terrain = net.rasanovum.roxy.legacy.terrain.ModernTerrain.INSTANCE;
             sender.addChatMessage(

@@ -4,7 +4,7 @@ plugins {
     id("com.gtnewhorizons.gtnhconvention")
 }
 
-version = "0.3.0-gtnh-alpha"
+version = "0.4.0-gtnh-alpha"
 
 val externalVoxy = providers.gradleProperty("roxyVoxyJar")
 val voxyCompileStubs = sourceSets.create("voxyCompileStubs")
@@ -32,6 +32,7 @@ tasks.named<Jar>("sourcesJar") { from(voxyBridge.allSource) }
 sourceSets.test.get().runtimeClasspath += voxyBridge.output
 
 dependencies {
+    compileOnly("it.unimi.dsi:fastutil:8.5.9")
     compileOnly("org.ow2.asm:asm:9.9.1")
     compileOnly("org.ow2.asm:asm-tree:9.9.1")
     testImplementation("org.ow2.asm:asm:9.9.1")
@@ -62,6 +63,7 @@ tasks.withType<Test>().configureEach {
     val testJava = providers.gradleProperty("roxyTestJava").getOrElse("21").toInt()
     javaLauncher.set(javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(testJava)) })
     providers.gradleProperty("roxyVoxyJar").orNull?.let { systemProperty("roxy.voxyJar", it) }
+    providers.gradleProperty("roxyAngelicaJar").orNull?.let { systemProperty("roxy.angelicaJar", it) }
     testLogging { events("passed", "skipped", "failed") }
 }
 

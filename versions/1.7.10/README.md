@@ -1,6 +1,6 @@
 # Roxy 1.7.10 / GTNH — original Voxy engine alpha
 
-Version 0.3.0 runs the original external Voxy GPU renderer, model baker, world
+Version 0.4.0 runs the original external Voxy GPU renderer, model baker, world
 engine/database, and adaptive LOD hierarchy inside GTNH. Roxy supplies the legacy
 Minecraft/Forge/Angelica interfaces and lifecycle. The original Voxy JAR remains
 separate and unchanged. The previous 0.2.x custom terrain renderer is no longer
@@ -15,15 +15,16 @@ See [validation](VALIDATION.md) for evidence and remaining coverage gaps.
 
 1. Use the **Java 17–26 edition of GTNH 2.9.0-beta-3**, running **Java 21 or newer**,
    with **Angelica 2.2.10** and the pack's LWJGL3ify installation.
-2. Remove older Roxy JARs and put `roxy-0.3.0-gtnh-alpha.jar` in `.minecraft/mods`.
+2. Remove older Roxy JARs and put `roxy-0.4.0-gtnh-alpha.jar` in `.minecraft/mods`.
 3. Obtain the original [Voxy 0.2.16-beta for Minecraft 1.21.11](https://modrinth.com/mod/voxy/version/H3w2nVdU)
    separately and put it in the same `mods` folder. Keep its original filename.
-4. Disable Iris shader packs, launch the game, enter a world, and explore. Voxy
+4. Launch the game, enter a world, and explore. Voxy
    starts automatically and retains observed terrain after you leave an area.
+   Shader packs are optional; see the supported interface below.
 
 ```text
 .minecraft/mods/
-  roxy-0.3.0-gtnh-alpha.jar
+  roxy-0.4.0-gtnh-alpha.jar
   voxy-0.2.16-beta+1.21.11.jar
 ```
 
@@ -47,6 +48,8 @@ Other GPU vendors and operating systems have not been validated here.
 | Voxel reduction, five-level hierarchy, world updates, section serialization, RocksDB/Zstandard storage | Original external Voxy, with Roxy registry adapters |
 | Asynchronous mesh generation, GPU hierarchy/occlusion traversal, indirect drawing, SSAO and composition | Original external Voxy |
 | Camera matrices, framebuffer/depth handoff, near-chunk coverage and lifecycle | Roxy compatibility code |
+| Shader pack parsing and distant shader drawing | Original Voxy `IrisShaderPatch` and `IrisVoxyRenderPipeline` |
+| Angelica shader sources, uniforms, samplers, material IDs, buffers and camera/depth integration | Roxy compatibility code |
 
 Roxy captures RenderBlocks geometry through GTNHLib and feeds it to Voxy's original
 baker. It does not execute Fabric's entrypoint or modern Minecraft mixins. The
@@ -55,10 +58,36 @@ model adapter also preserves legacy directional shading and adjacent-face lighti
 for translucent full cubes such as ice; fluid and inset geometry keep their own
 lighting rules.
 
+Received chunk packets enter a persistent, fair capture queue after their data is
+installed. Each chunk's nonempty upper sections receive attention before the
+queue returns for deeper sections. Moving away does not reset the queue; unloaded
+chunks remain available until capture completes. Voxy's original reduction and
+database ingestion run on a bounded worker queue. Repeated scans do not recapture
+unchanged terrain; packet and block-change notifications drive updates.
+
+If a mod's model callback throws, Roxy caches a static textured fallback for that
+block/metadata and continues. It reports the exception once per model, with a
+fallback count in `/roxy status`. Tile-dependent appearances may be approximate
+in LODs; nearby machines continue to use their normal renderers.
+
+## Shader support
+
+Enable a pack through Angelica's **Shader Packs** screen. The pack must expose
+Voxy's native `voxy.json`/GLSL interface and otherwise work with Angelica. Roxy
+adapts that shared interface, with no shader-name checks or bundled shader code.
+It uses the pack's own materials, custom uniforms, shadow/noise textures,
+render targets, blending, TAA offsets and requested storage buffers.
+
+Validation targets are **Complementary Reimagined r5.9.3**, **Photon 1.4**, and
+**BSL 10.1.8** on Angelica 2.2.10. See [validation](VALIDATION.md) for the actual
+test results. A pack without Voxy's interface cannot shade distant terrain through
+this bridge; disable that pack and use `/roxy on` to resume without shaders.
+Support for one pack does not imply every pack or graphics option is compatible.
+
 ## Controls and storage
 
 - `/roxy on`, `/roxy off`: start or stop Voxy, including capture.
-- `/roxy status`: renderer state, ingested section count and distance or failure.
+- `/roxy status`: renderer state, captured sections, queued chunks, model fallbacks and distance or failure.
 - `/roxy hud`: toggle the status overlay; F3 also shows original Voxy GPU counters.
 - `/roxy distance 64`: set maximum distance, from 8 to 128 chunks.
 - `/roxy reload`: reload game resources and rebuild captured models.
@@ -88,7 +117,7 @@ GTNH, Angelica and the game atlas require additional memory.
 | --- | --- |
 | GTNH | 2.9.0-beta-3 |
 | Minecraft / Forge | 1.7.10 / 10.13.4.1614 |
-| Angelica | 2.2.10, shader packs disabled |
+| Angelica | 2.2.10 |
 | GTNHLib / Hodgepodge | 0.11.46 / 2.7.196 |
 | EndlessIDs | 1.7.4, including 16-bit metadata |
 | LWJGL3ify / LWJGL | 3.0.31 / 3.4.2 |
@@ -100,12 +129,12 @@ GTNH, Angelica and the game atlas require additional memory.
   block/metadata snapshot. Detailed nearby rendering remains Angelica's job.
 - Ice and water can still differ in appearance across the native/LOD boundary;
   this alpha does not promise pixel-identical transparency or bug-free visuals.
-- Iris shader packs are unsupported and produce an explicit renderer error.
-  Disable the pack and use `/roxy on` to retry. Environmental fog hides distant
-  drawing underwater, in lava, or during blindness.
-- Capture has a soft six-millisecond/four-section budget per tick. Block and
-  lighting changes receive priority; loaded chunks also refresh periodically.
-  Expensive mod callbacks can exceed the soft budget.
+- Shader packs need Voxy's native interface. Packs control their own fog; without
+  shaders, environmental fog hides distant drawing underwater, in lava, or during blindness.
+- Capture has a soft six-millisecond budget and a 128-section upper limit per tick.
+  Block changes share the budget with newly received terrain. Expensive initial
+  model callbacks can exceed the soft budget. Capture can lag behind very fast
+  travel, but moving/unloading no longer discards the pending chunks.
 - The database grows with explored terrain. There is no server importer,
   background world generation, or dedicated multiplayer validation in this alpha.
 - Angelica 2.1.61, other pack releases, all dimensions and all modded machine
@@ -143,5 +172,9 @@ Use JDK 25 for Gradle with JDK 8 and 21 available as compiler toolchains:
 ```
 
 The external JAR is required to compile the bridge and run integration tests; no
-build task downloads or republishes it. Install `build/libs/roxy-0.3.0-gtnh-alpha.jar`,
+build task downloads or republishes it. Install `build/libs/roxy-0.4.0-gtnh-alpha.jar`,
 not the `-dev` or `-sources` artifacts. `verifyNoBundledVoxy` audits the artifact.
+
+Pass `-ProxyAngelicaJar=C:/path/to/angelica-2.2.10.jar` to also run the hook/stack
+verification against the actual host shader binary. That optional test skips
+when no Angelica JAR is supplied; release validation supplies both external JARs.

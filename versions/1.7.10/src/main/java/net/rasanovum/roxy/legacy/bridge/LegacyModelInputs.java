@@ -4,7 +4,6 @@ import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockLeavesBase;
@@ -16,6 +15,7 @@ import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.client.renderer.texture.TextureMap;
 import net.minecraft.init.Blocks;
 import net.minecraft.tileentity.TileEntity;
+import net.minecraft.util.IIcon;
 import net.minecraft.world.IBlockAccess;
 import net.minecraft.world.biome.BiomeGenBase;
 import net.minecraftforge.common.util.ForgeDirection;
@@ -23,12 +23,16 @@ import net.minecraftforge.common.util.ForgeDirection;
 /** Captures actual legacy renderer geometry on the client thread, before asynchronous Voxy baking. */
 public final class LegacyModelInputs {
 
-    private static final Map<String, ModelSnapshot> MODELS = new ConcurrentHashMap<String, ModelSnapshot>();
+    private static final ModelCaptureCache<ModelSnapshot> MODELS = new ModelCaptureCache<ModelSnapshot>();
 
     private LegacyModelInputs() {}
 
     public static void clear() {
         MODELS.clear();
+    }
+
+    public static int fallbackCount() {
+        return MODELS.fallbackCount();
     }
 
     public static ModelSnapshot get(String name, int metadata) {
@@ -57,8 +61,20 @@ public final class LegacyModelInputs {
 
     public static ModelSnapshot capture(final Block block, final int metadata) throws Exception {
         String name = Block.blockRegistry.getNameForObject(block);
-        ModelSnapshot existing = MODELS.get(name + ":" + metadata);
-        if (existing != null) return existing;
+        return MODELS.capture(
+            name + ":" + metadata,
+            () -> captureModel(block, metadata),
+            () -> fallback(block, metadata),
+            (key, error) -> {
+                if (MODELS.fallbackCount() <= 32) org.apache.logging.log4j.LogManager.getLogger("Roxy")
+                    .warn(
+                        "Using a static texture fallback for model {}. Terrain capture continues; model callback failed",
+                        key,
+                        error);
+            });
+    }
+
+    private static ModelSnapshot captureModel(final Block block, final int metadata) throws Exception {
         Class<?> manager = Class.forName("com.gtnewhorizon.gtnhlib.client.renderer.TessellatorManager");
         if ((Boolean) manager.getMethod("isCurrentlyCapturing")
             .invoke(null)) throw new IllegalStateException("Nested model capture");
@@ -141,12 +157,40 @@ public final class LegacyModelInputs {
                 colour,
                 colours,
                 fluidFaces);
-            MODELS.put(name + ":" + metadata, result);
             return result;
         } finally {
             manager.getMethod("cleanup")
                 .invoke(null);
         }
+    }
+
+    /** Does not invoke a custom renderer, world lookup, tile factory, tint or light callback. */
+    private static ModelSnapshot fallback(Block block, int metadata) {
+        int[][] faces = { { 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1 }, { 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0 },
+            { 1, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1, 0 }, { 0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1 },
+            { 0, 0, 0, 0, 0, 1, 0, 1, 1, 0, 1, 0 }, { 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 1, 1 } };
+        float[] vertices = new float[144];
+        for (int face = 0; face < 6; face++) {
+            IIcon icon = null;
+            try {
+                icon = block.getIcon(face, metadata);
+            } catch (RuntimeException | LinkageError ignored) {}
+            if (icon == null) icon = Minecraft.getMinecraft()
+                .getTextureMapBlocks()
+                .getAtlasSprite("missingno");
+            for (int v = 0; v < 4; v++) {
+                int offset = face * 24 + v * 6;
+                for (int axis = 0; axis < 3; axis++) vertices[offset + axis] = faces[face][v * 3 + axis];
+                vertices[offset + 3] = v == 0 || v == 3 ? icon.getMinU() : icon.getMaxU();
+                vertices[offset + 4] = v < 2 ? icon.getMaxV() : icon.getMinV();
+                vertices[offset + 5] = 3;
+            }
+        }
+        boolean translucent = false;
+        try {
+            translucent = block.getRenderBlockPass() == 1;
+        } catch (RuntimeException | LinkageError ignored) {}
+        return new ModelSnapshot(vertices, false, block instanceof BlockLeavesBase, translucent, 0, 0xffffff);
     }
 
     private static float[] geometry(Class<?> manager, IBlockAccess access, Block block, int colour, boolean allFaces)

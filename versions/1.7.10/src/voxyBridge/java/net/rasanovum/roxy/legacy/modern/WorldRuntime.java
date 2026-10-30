@@ -89,6 +89,16 @@ public final class WorldRuntime implements AutoCloseable {
         if (closed) return;
         closed = true;
         saving.shutdown();
+        // A renderer constructor can fail after registering a mesh service. Stop any such
+        // orphan before shutting down the pool, otherwise it leaves the database locked.
+        try {
+            var services = me.cortex.voxy.common.thread.ServiceManager.class.getDeclaredField("services");
+            services.setAccessible(true);
+            for (var service : (me.cortex.voxy.common.thread.Service[]) services.get(pool.serviceManager))
+                if (service.isLive()) service.shutdown();
+        } catch (ReflectiveOperationException error) {
+            throw new IllegalStateException("Could not close remaining Voxy services", error);
+        }
         pool.shutdown();
         engine.free();
     }

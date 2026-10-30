@@ -4,12 +4,10 @@ import java.lang.reflect.Method;
 import java.nio.FloatBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
-import java.util.ArrayDeque;
 import java.util.HashMap;
-import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 import net.minecraft.block.Block;
@@ -35,6 +33,7 @@ import net.rasanovum.roxy.legacy.bridge.LegacyModelInputs;
 import net.rasanovum.roxy.legacy.loader.ExternalVoxyLoader;
 import net.rasanovum.roxy.legacy.loader.LoadDiagnostics;
 import net.rasanovum.roxy.legacy.loader.VoxyJarLocator;
+import net.rasanovum.roxy.legacy.shader.ShaderHooks;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -54,29 +53,30 @@ public final class ModernTerrain implements IResourceManagerReloadListener {
     private ExternalVoxyLoader loader;
     private Object runtime;
     private WorldClient world;
-    private Method ingest, registerBlock, registerBiome, draw, close, debug;
-    private final Map<String, Integer> states = new HashMap<String, Integer>();
+    private WorldClient observedWorld;
+    private Method ingest, ingestCapacity, registerBlock, registerBiome, draw, prepare, close, debug;
+    private final Map<Block, it.unimi.dsi.fastutil.ints.Int2IntMap> states = new IdentityHashMap<Block, it.unimi.dsi.fastutil.ints.Int2IntMap>();
+    private final java.util.Set<Block> unsafeProperties = java.util.Collections
+        .newSetFromMap(new IdentityHashMap<Block, Boolean>());
     private final Map<Integer, Integer> biomes = new HashMap<Integer, Integer>();
-    private final ArrayDeque<Chunk> queue = new ArrayDeque<Chunk>();
-    private final Set<Long> queued = new HashSet<Long>();
+    private final CaptureQueue<ObservedChunk> queue = new CaptureQueue<ObservedChunk>();
     private final Map<Long, Long> captured = new java.util.concurrent.ConcurrentHashMap<Long, Long>();
     private final Map<Long, Integer> dirty = new LinkedHashMap<Long, Integer>();
     private final WorldChanges changes = new WorldChanges(this);
-    private Chunk building;
-    private int sectionY;
     private long ticks;
     private int sections;
     private boolean enabled;
     private Configuration config;
     private boolean hud;
-    private Method shaderPack;
+    private Object shaderPipeline;
     private int distanceChunks = 64;
-    private int scanX = Integer.MIN_VALUE, scanZ = Integer.MIN_VALUE;
     private String failure;
     private boolean renderedThisFrame;
     private final FloatBuffer matrixBuffer = BufferUtils.createFloatBuffer(16);
     private final float[] projection = new float[16];
     private final float[] modelView = new float[16];
+    private static final int[][] LIGHT_NEIGHBORS = { { 0, 1, 0 }, { 1, 0, 0 }, { -1, 0, 0 }, { 0, 0, 1 },
+        { 0, 0, -1 } };
 
     private ModernTerrain() {}
 
@@ -140,7 +140,11 @@ public final class ModernTerrain implements IResourceManagerReloadListener {
         return "Voxy " + (enabled ? "ON" : "OFF")
             + ", "
             + sections
-            + " sections ingested, "
+            + " sections captured, "
+            + queue.size()
+            + " chunks pending, "
+            + LegacyModelInputs.fallbackCount()
+            + " model fallbacks, "
             + distanceChunks
             + "-chunk distance";
     }
@@ -149,16 +153,15 @@ public final class ModernTerrain implements IResourceManagerReloadListener {
         return enabled && failure == null;
     }
 
+    public int distance() {
+        return distanceChunks;
+    }
+
     private void start() throws Exception {
         if (mc.theWorld == null) return;
-        try {
-            Class<?> iris = Class.forName("net.coderbot.iris.Iris");
-            shaderPack = iris.getMethod("getCurrentPack");
-            if (((java.util.Optional<?>) shaderPack.invoke(null)).isPresent())
-                throw new IllegalStateException("Disable the Iris shader pack for this development renderer");
-        } catch (ClassNotFoundException absent) {
-            LOG.debug("No Iris shader integration installed");
-        }
+        if (observedWorld != null && observedWorld != mc.theWorld) stop(false);
+        observedWorld = mc.theWorld;
+        shaderPipeline = ShaderHooks.activePipeline();
         world = mc.theWorld;
         Path game = mc.mcDataDir.toPath();
         if (loader == null)
@@ -183,6 +186,7 @@ public final class ModernTerrain implements IResourceManagerReloadListener {
             LegacyModelInputs.capture(block, Integer.parseInt(parts[1]));
         }
         ingest = type.getMethod("ingest", int.class, int.class, int.class, long[].class);
+        ingestCapacity = type.getMethod("ingestCapacity");
         registerBlock = type.getMethod("registerBlock", String.class, int.class, int.class);
         registerBiome = type.getMethod("registerBiome", int.class);
         draw = type.getMethod(
@@ -194,6 +198,7 @@ public final class ModernTerrain implements IResourceManagerReloadListener {
             double.class,
             int.class,
             float.class);
+        prepare = type.getMethod("prepare", draw.getParameterTypes());
         debug = type.getMethod("debug");
         type.getMethod("start", int.class, int.class)
             .invoke(runtime, mc.gameSettings.renderDistanceChunks, mc.gameSettings.mipmapLevels);
@@ -210,33 +215,23 @@ public final class ModernTerrain implements IResourceManagerReloadListener {
         if (!enabled || failure != null || mc.theWorld == null || mc.thePlayer == null || mc.isGamePaused()) return;
         try {
             if (runtime == null) start();
-            if (++ticks % 20 == 1) {
-                if (shaderPack != null && ((java.util.Optional<?>) shaderPack.invoke(null)).isPresent())
-                    throw new IllegalStateException("Disable the Iris shader pack, then use /roxy on");
+            if (shaderPipeline != ShaderHooks.activePipeline()) {
+                stop(true);
+                start();
+            }
+            if (++ticks % 5 == 1) {
                 scan();
             }
             long begin = System.nanoTime();
-            for (int count = 0; count < 4 && System.nanoTime() - begin < 6000000; count++) {
+            for (int count = 0; count < 128 && System.nanoTime() - begin < 6000000; count++) {
+                if ((Integer) ingestCapacity.invoke(runtime) == 0) break;
                 // Reserve half the budget for newly observed terrain even during heavy block updates.
                 if (count % 2 == 0 && captureChanged()) continue;
-                if (building == null) {
-                    building = queue.poll();
-                    sectionY = 0;
-                }
-                if (building == null) break;
-                if (world.getChunkFromChunkCoords(building.xPosition, building.zPosition) != building) {
-                    queued.remove(LodChunk.key(building.xPosition, building.zPosition));
-                    building = null;
-                    continue;
-                }
-                capture(building, sectionY++);
+                CaptureQueue.Work<ObservedChunk> work = queue.poll();
+                if (work == null) break;
+                capture(work.value, work.section);
                 sections++;
-                if (sectionY == 16) {
-                    long key = LodChunk.key(building.xPosition, building.zPosition);
-                    captured.put(key, ticks);
-                    queued.remove(key);
-                    building = null;
-                }
+                if (work.last) captured.put(work.key, ticks);
             }
         } catch (Exception | LinkageError error) {
             fail(error);
@@ -250,7 +245,8 @@ public final class ModernTerrain implements IResourceManagerReloadListener {
         synchronized (dirty) {
             for (int z = minZ >> 4; z <= maxZ >> 4; z++) for (int x = minX >> 4; x <= maxX >> 4; x++) {
                 long key = LodChunk.key(x, z);
-                // Initial chunk arrivals are already handled by the ordinary near-to-far scan.
+                // A section already processed in a partially captured chunk can change again.
+                if (queue.changed(key, mask)) continue;
                 if (!captured.containsKey(key)) continue;
                 Integer previous = dirty.get(key);
                 if (previous != null || dirty.size() < 4096) dirty.put(key, mask | (previous == null ? 0 : previous));
@@ -273,9 +269,11 @@ public final class ModernTerrain implements IResourceManagerReloadListener {
             else entry.setValue(remaining);
         }
         int x = (int) (key >> 32), z = (int) key;
+        if (!world.getChunkProvider()
+            .chunkExists(x, z)) return true;
         Chunk chunk = world.getChunkFromChunkCoords(x, z);
         if (!(chunk instanceof EmptyChunk)) {
-            capture(chunk, sy);
+            capture(new ObservedChunk(chunk, world), sy);
             sections++;
         }
         return true;
@@ -284,63 +282,127 @@ public final class ModernTerrain implements IResourceManagerReloadListener {
     private void scan() {
         int cx = MathHelper.floor_double(mc.thePlayer.posX) >> 4;
         int cz = MathHelper.floor_double(mc.thePlayer.posZ) >> 4;
-        if (scanX == Integer.MIN_VALUE || Math.abs(cx - scanX) > 2 || Math.abs(cz - scanZ) > 2) {
-            queue.clear();
-            queued.clear();
-            building = null;
-            scanX = cx;
-            scanZ = cz;
-        }
         int radius = Math.max(8, mc.gameSettings.renderDistanceChunks + 2);
         for (int ring = 0; ring <= radius; ring++)
             for (int z = -ring; z <= ring; z++) for (int x = -ring; x <= ring; x++) {
                 if (Math.max(Math.abs(x), Math.abs(z)) != ring) continue;
                 long key = LodChunk.key(cx + x, cz + z);
                 Long last = captured.get(key);
-                if (queued.contains(key) || (last != null && ticks - last < 400)
+                if (queue.contains(key) || last != null
                     || !world.getChunkProvider()
                         .chunkExists(cx + x, cz + z))
                     continue;
                 Chunk chunk = world.getChunkFromChunkCoords(cx + x, cz + z);
                 if (chunk instanceof EmptyChunk) continue;
-                queue.add(chunk);
-                queued.add(key);
+                enqueue(chunk);
             }
     }
 
-    private void capture(Chunk chunk, int sy) throws Exception {
+    private void enqueue(Chunk chunk) {
+        long key = LodChunk.key(chunk.xPosition, chunk.zPosition);
+        if (chunk instanceof EmptyChunk || queue.contains(key)) return;
+        int preferred = 0;
+        net.minecraft.world.chunk.storage.ExtendedBlockStorage[] storage = chunk.getBlockStorageArray();
+        for (int sy = 0; sy < 16; sy++) if (storage[sy] != null && !storage[sy].isEmpty()) preferred |= 1 << sy;
+        queue.offer(key, new ObservedChunk(chunk, world), 65535, preferred);
+    }
+
+    public static void chunkReceived(Chunk chunk) {
+        ModernTerrain terrain = INSTANCE;
+        if (terrain.runtime == null || chunk.worldObj != terrain.world) return;
+        int preferred = 0;
+        net.minecraft.world.chunk.storage.ExtendedBlockStorage[] storage = chunk.getBlockStorageArray();
+        for (int sy = 0; sy < 16; sy++) if (storage[sy] != null && !storage[sy].isEmpty()) preferred |= 1 << sy;
+        terrain.queue.offer(
+            LodChunk.key(chunk.xPosition, chunk.zPosition),
+            new ObservedChunk(chunk, terrain.world),
+            65535,
+            preferred);
+    }
+
+    @SubscribeEvent
+    public void chunkUnloaded(net.minecraftforge.event.world.ChunkEvent.Unload event) {
+        if (runtime != null && event.world == world) {
+            // The provider can remove the chunk immediately after this event. Retain its received
+            // data until our client-thread capture finishes, even when flying or teleporting away.
+            long key = LodChunk.key(event.getChunk().xPosition, event.getChunk().zPosition);
+            if (!captured.containsKey(key)) enqueue(event.getChunk());
+            synchronized (dirty) {
+                Integer changed = dirty.remove(key);
+                if (changed != null) queue.offer(key, new ObservedChunk(event.getChunk(), world), changed, changed);
+            }
+            captured.remove(key);
+        }
+    }
+
+    private void capture(ObservedChunk observed, int sy) throws Exception {
+        observed.prepare();
+        Chunk chunk = observed.chunk;
         long[] data = new long[4096];
+        boolean empty = chunk.getBlockStorageArray()[sy] == null;
         for (int z = 0; z < 16; z++) for (int x = 0; x < 16; x++) {
             int wx = chunk.xPosition * 16 + x, wz = chunk.zPosition * 16 + z;
-            int biome = world.getBiomeGenForCoords(wx, wz).biomeID;
+            int biome = observed.biomes[x + z * 16].biomeID;
             Integer biomeId = biomes.get(biome);
             if (biomeId == null) {
                 biomeId = (Integer) registerBiome.invoke(runtime, biome);
                 biomes.put(biome, biomeId);
             }
+            if (empty) {
+                long air = LegacyMapper.pack(
+                    0,
+                    biomeId,
+                    observed.light(EnumSkyBlock.Sky, wx, sy * 16, wz),
+                    observed.light(EnumSkyBlock.Block, wx, sy * 16, wz));
+                for (int y = 0; y < 16; y++) data[x + 16 * (z + 16 * y)] = air;
+                continue;
+            }
             for (int y = 0; y < 16; y++) {
                 int wy = sy * 16 + y;
                 Block block = chunk.getBlock(x, wy, z);
                 int id = 0;
-                if (!block.isAir(world, wx, wy, wz)) {
+                boolean air = block == Blocks.air;
+                int opacity = air ? 0
+                    : (block.getMaterial()
+                        .isOpaque() ? 15 : 0);
+                if (!air && !unsafeProperties.contains(block)) try {
+                    air = block.isAir(observed, wx, wy, wz);
+                    opacity = Math.max(0, Math.min(15, block.getLightOpacity(observed, wx, wy, wz)));
+                } catch (RuntimeException | LinkageError error) {
+                    unsafeProperties.add(block);
+                    LOG.warn(
+                        "Using static block properties for {} after a mod callback failed; capture continues",
+                        Block.blockRegistry.getNameForObject(block),
+                        error);
+                }
+                if (!air) {
                     int meta = chunk.getBlockMetadata(x, wy, z);
-                    int opacity = Math.max(0, Math.min(15, block.getLightOpacity(world, wx, wy, wz)));
-                    String name = Block.blockRegistry.getNameForObject(block);
-                    String key = name + "@" + meta + ":" + opacity;
-                    Integer known = states.get(key);
-                    if (known == null) {
+                    int key = (opacity << 16) | meta;
+                    it.unimi.dsi.fastutil.ints.Int2IntMap blockStates = states.get(block);
+                    if (blockStates == null) {
+                        blockStates = new it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap();
+                        blockStates.defaultReturnValue(-1);
+                        states.put(block, blockStates);
+                    }
+                    int known = blockStates.get(key);
+                    if (known == -1) {
                         LegacyModelInputs.capture(block, meta);
+                        String name = Block.blockRegistry.getNameForObject(block);
                         known = (Integer) registerBlock.invoke(runtime, name, meta, opacity);
-                        states.put(key, known);
+                        blockStates.put(key, known);
                     }
                     id = known;
                 }
                 int sky = world.provider.hasNoSky ? 0 : chunk.getSavedLightValue(EnumSkyBlock.Sky, x, wy, z);
                 int light = chunk.getSavedLightValue(EnumSkyBlock.Block, x, wy, z);
                 if (block.getUseNeighborBrightness()) {
-                    int brightness = world.getLightBrightnessForSkyBlocks(wx, wy, wz, light);
-                    sky = world.provider.hasNoSky ? 0 : (brightness >>> 20) & 15;
-                    light = (brightness >>> 4) & 15;
+                    for (int[] offset : LIGHT_NEIGHBORS) {
+                        sky = Math
+                            .max(sky, observed.light(EnumSkyBlock.Sky, wx + offset[0], wy + offset[1], wz + offset[2]));
+                        light = Math.max(
+                            light,
+                            observed.light(EnumSkyBlock.Block, wx + offset[0], wy + offset[1], wz + offset[2]));
+                    }
                 }
                 data[x + 16 * (z + 16 * y)] = LegacyMapper.pack(id, biomeId, sky, light);
             }
@@ -352,6 +414,7 @@ public final class ModernTerrain implements IResourceManagerReloadListener {
     public void fog(EntityViewRenderEvent.RenderFogEvent event) {
         if (runtime != null && enabled
             && failure == null
+            && ShaderHooks.activePipeline() == null
             && event.fogMode >= 0
             && !LegacyTerrainRenderer.hasEnvironmentalFog(event.entity)) {
             GL11.glFogf(GL11.GL_FOG_START, distanceChunks * 12);
@@ -367,10 +430,12 @@ public final class ModernTerrain implements IResourceManagerReloadListener {
 
     @SubscribeEvent
     public void renderTick(TickEvent.RenderTickEvent event) {
+        ShaderHooks.partialTick = event.renderTickTime;
         if (event.phase == TickEvent.Phase.START) renderedThisFrame = false;
     }
 
     public static void beforeTerrainPass(int pass, double partialTicks) {
+        if (ShaderHooks.activePipeline() != null) return;
         if (pass == 0) INSTANCE.renderedThisFrame = false;
         if (pass == 1 && !INSTANCE.renderedThisFrame) {
             INSTANCE.renderedThisFrame = true;
@@ -378,12 +443,43 @@ public final class ModernTerrain implements IResourceManagerReloadListener {
         }
     }
 
+    public static void beforeShaderDeferred() {
+        if (ShaderHooks.shadowPass()) return;
+        ModernTerrain terrain = INSTANCE;
+        terrain.renderedThisFrame = true;
+        if (terrain.enabled && terrain.failure == null && terrain.world != null) try {
+            if (terrain.shaderPipeline != ShaderHooks.activePipeline()) {
+                terrain.stop(true);
+                terrain.start();
+            }
+            terrain.drawTerrain(ShaderHooks.partialTick);
+        } catch (Exception | LinkageError error) {
+            terrain.fail(error);
+        }
+    }
+
+    public static void prepareShaderFrame() {
+        // Angelica updates shader uniforms immediately after this hook. Publish this frame's
+        // Voxy projection first so reconstruction/TAA never use the previous camera transform.
+        if (!ShaderHooks.shadowPass()) INSTANCE.drawTerrain(ShaderHooks.partialTick, true);
+    }
+
     private void drawTerrain(float partialTicks) {
+        drawTerrain(partialTicks, false);
+    }
+
+    private void drawTerrain(float partialTicks, boolean prepareOnly) {
         if (runtime == null || failure != null || !enabled) return;
         try {
+            // Shader menus pause client ticks while continuing to render. Angelica can delete
+            // the old targets immediately, so neither preparation nor drawing may use them.
+            if (shaderPipeline != ShaderHooks.activePipeline()) {
+                stop(true);
+                start();
+            }
             EntityLivingBase camera = mc.renderViewEntity;
             if (camera == null) return;
-            if (LegacyTerrainRenderer.hasEnvironmentalFog(camera)) return;
+            if (ShaderHooks.activePipeline() == null && LegacyTerrainRenderer.hasEnvironmentalFog(camera)) return;
             matrixBuffer.clear();
             GL11.glGetFloat(GL11.GL_PROJECTION_MATRIX, matrixBuffer);
             matrixBuffer.get(projection);
@@ -391,7 +487,7 @@ public final class ModernTerrain implements IResourceManagerReloadListener {
             GL11.glGetFloat(GL11.GL_MODELVIEW_MATRIX, matrixBuffer);
             matrixBuffer.get(modelView);
             float p = partialTicks;
-            draw.invoke(
+            (prepareOnly ? prepare : draw).invoke(
                 runtime,
                 projection,
                 modelView,
@@ -425,6 +521,10 @@ public final class ModernTerrain implements IResourceManagerReloadListener {
     }
 
     private void stop() {
+        stop(false);
+    }
+
+    private void stop(boolean preserveObservations) {
         if (world != null) world.removeWorldAccess(changes);
         try {
             if (runtime != null && close != null) close.invoke(runtime);
@@ -433,14 +533,18 @@ public final class ModernTerrain implements IResourceManagerReloadListener {
         }
         runtime = null;
         world = null;
-        building = null;
         states.clear();
+        unsafeProperties.clear();
         biomes.clear();
-        queue.clear();
-        queued.clear();
-        captured.clear();
-        synchronized (dirty) {
-            dirty.clear();
+        if (!preserveObservations) {
+            observedWorld = null;
+            queue.clear();
+            captured.clear();
+            synchronized (dirty) {
+                dirty.clear();
+            }
+            sections = 0;
+            ticks = 0;
         }
         if (loader != null && System.getProperty("roxy.developmentBridgeJar") != null) {
             try {
@@ -450,18 +554,15 @@ public final class ModernTerrain implements IResourceManagerReloadListener {
             }
             loader = null;
         }
-        scanX = scanZ = Integer.MIN_VALUE;
-        sections = 0;
-        ticks = 0;
     }
 
     public void onResourceManagerReload(IResourceManager manager) {
-        stop();
+        stop(world != null && world == mc.theWorld);
         LegacyModelInputs.clear();
     }
 
     @SubscribeEvent
     public void unload(net.minecraftforge.event.world.WorldEvent.Unload event) {
-        if (event.world == world) stop();
+        if (event.world == world || event.world == observedWorld) stop();
     }
 }

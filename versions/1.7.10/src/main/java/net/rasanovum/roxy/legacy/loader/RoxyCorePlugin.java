@@ -11,7 +11,8 @@ import cpw.mods.fml.relauncher.IFMLLoadingPlugin;
 public final class RoxyCorePlugin implements IFMLLoadingPlugin {
 
     public String[] getASMTransformerClass() {
-        return new String[] { RenderPhaseTransformer.class.getName() };
+        return new String[] { RenderPhaseTransformer.class.getName(), ChunkArrivalTransformer.class.getName(),
+            ShaderPhaseTransformer.class.getName() };
     }
 
     public String getModContainerClass() {

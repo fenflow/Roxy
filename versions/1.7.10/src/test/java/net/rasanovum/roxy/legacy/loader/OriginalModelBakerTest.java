@@ -6,9 +6,9 @@ import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Arrays;
-import java.util.Map;
 
 import net.rasanovum.roxy.legacy.bridge.LegacyModelInputs;
+import net.rasanovum.roxy.legacy.bridge.ModelCaptureCache;
 import net.rasanovum.roxy.legacy.bridge.ModelSnapshot;
 
 import org.junit.Assume;
@@ -43,7 +43,8 @@ public class OriginalModelBakerTest {
         }
         Field cache = LegacyModelInputs.class.getDeclaredField("MODELS");
         cache.setAccessible(true);
-        Map<String, ModelSnapshot> models = (Map<String, ModelSnapshot>) cache.get(null);
+        ModelCaptureCache<ModelSnapshot> models = (ModelCaptureCache<ModelSnapshot>) cache.get(null);
+        models.clear();
         float[][] fluidFaces = null;
         if (fluid) {
             fluidFaces = new float[6][];
@@ -52,17 +53,16 @@ public class OriginalModelBakerTest {
             for (int vertex = 0; vertex < 4; vertex++) fluidFaces[1][vertex * 6 + 1] = .875f;
             geometry = fluidFaces[1];
         }
-        models.put(
-            "roxy:test_cube:0",
-            new ModelSnapshot(
-                geometry,
-                fluid,
-                false,
-                fluid,
-                0,
-                0xffffff,
-                java.util.Collections.<Integer, Integer>emptyMap(),
-                fluidFaces));
+        ModelSnapshot snapshot = new ModelSnapshot(
+            geometry,
+            fluid,
+            false,
+            fluid,
+            0,
+            0xffffff,
+            java.util.Collections.<Integer, Integer>emptyMap(),
+            fluidFaces);
+        models.capture("roxy:test_cube:0", () -> snapshot, () -> snapshot, (key, error) -> fail());
         try (ExternalVoxyLoader loader = new ExternalVoxyLoader(
             Paths.get(configured),
             Files.createTempDirectory("roxy-baker-"))) {
@@ -107,7 +107,7 @@ public class OriginalModelBakerTest {
                     .invoke(bakery);
             }
         } finally {
-            models.remove("roxy:test_cube:0");
+            models.clear();
         }
     }
 }

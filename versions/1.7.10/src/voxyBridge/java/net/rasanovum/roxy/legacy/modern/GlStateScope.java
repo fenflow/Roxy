@@ -17,14 +17,15 @@ public final class GlStateScope implements AutoCloseable {
         GL_TEXTURE_BINDING_1D_ARRAY, GL_TEXTURE_BINDING_2D_ARRAY, GL_TEXTURE_BINDING_CUBE_MAP,
         GL_TEXTURE_BINDING_CUBE_MAP_ARRAY, GL_TEXTURE_BINDING_RECTANGLE, GL_TEXTURE_BINDING_BUFFER,
         GL_TEXTURE_BINDING_2D_MULTISAMPLE, GL_TEXTURE_BINDING_2D_MULTISAMPLE_ARRAY };
-    private final int[][] textures = new int[12][textureTargets.length];
+    private final int[][] textures = new int[Math
+        .min(32, glGetInteger(GL_MAX_TEXTURE_IMAGE_UNITS))][textureTargets.length];
     private final int[] imageKeys = { GL_IMAGE_BINDING_NAME, GL_IMAGE_BINDING_LEVEL, GL_IMAGE_BINDING_LAYERED,
         GL_IMAGE_BINDING_LAYER, GL_IMAGE_BINDING_ACCESS, GL_IMAGE_BINDING_FORMAT };
     private final int[][] images = new int[7][imageKeys.length];
-    private final int[] samplers = new int[12];
-    private final int[] ssbo = new int[10];
+    private final int[] samplers = new int[textures.length];
+    private final int[] ssbo = new int[Math.min(32, glGetInteger(GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS))];
     private final int[] ubo = new int[10];
-    private final long[] ssboStart = new long[10], ssboSize = new long[10];
+    private final long[] ssboStart = new long[ssbo.length], ssboSize = new long[ssbo.length];
     private final long[] uboStart = new long[10], uboSize = new long[10];
     private final int[] targets = { GL_ARRAY_BUFFER, GL_ELEMENT_ARRAY_BUFFER, GL_PIXEL_PACK_BUFFER,
         GL_PIXEL_UNPACK_BUFFER, GL_UNIFORM_BUFFER, GL_SHADER_STORAGE_BUFFER, GL_DRAW_INDIRECT_BUFFER,
@@ -61,6 +62,11 @@ public final class GlStateScope implements AutoCloseable {
         GL_STENCIL_BACK_REF, GL_STENCIL_BACK_VALUE_MASK, GL_STENCIL_BACK_WRITEMASK, GL_STENCIL_BACK_FAIL,
         GL_STENCIL_BACK_PASS_DEPTH_FAIL, GL_STENCIL_BACK_PASS_DEPTH_PASS };
     private final int[] stencil = new int[stencilKeys.length];
+    private final int[] indexedBlendKeys = { GL_BLEND_SRC_RGB, GL_BLEND_DST_RGB, GL_BLEND_SRC_ALPHA, GL_BLEND_DST_ALPHA,
+        GL_BLEND_EQUATION_RGB, GL_BLEND_EQUATION_ALPHA };
+    private final int[][] indexedBlend = new int[glGetInteger(GL_MAX_DRAW_BUFFERS)][6];
+    private final boolean[] indexedBlendEnabled = new boolean[indexedBlend.length];
+    private final int[][] indexedMasks = new int[indexedBlend.length][4];
 
     public GlStateScope() {
         for (int i = 0; i < enableKeys.length; i++) enabled[i] = glIsEnabled(enableKeys[i]);
@@ -70,18 +76,25 @@ public final class GlStateScope implements AutoCloseable {
         glGetDoublev(GL_DEPTH_RANGE, depthRange);
         for (int i = 0; i < pixelKeys.length; i++) pixelValues[i] = glGetInteger(pixelKeys[i]);
         for (int i = 0; i < stencilKeys.length; i++) stencil[i] = glGetInteger(stencilKeys[i]);
-        for (int i = 0; i < 12; i++) {
+        for (int i = 0; i < textures.length; i++) {
             glActiveTexture(GL_TEXTURE0 + i);
             for (int t = 0; t < textureTargets.length; t++) textures[i][t] = glGetInteger(textureBindings[t]);
             samplers[i] = glGetIntegeri(GL_SAMPLER_BINDING, i);
         }
         for (int i = 0; i < images.length; i++)
             for (int k = 0; k < imageKeys.length; k++) images[i][k] = glGetIntegeri(imageKeys[k], i);
-        for (int i = 0; i < 10; i++) {
+        for (int i = 0; i < indexedBlend.length; i++) {
+            indexedBlendEnabled[i] = glIsEnabledi(GL_BLEND, i);
+            for (int k = 0; k < 6; k++) indexedBlend[i][k] = glGetIntegeri(indexedBlendKeys[k], i);
+            glGetIntegeri_v(GL_COLOR_WRITEMASK, i, indexedMasks[i]);
+        }
+        for (int i = 0; i < ssbo.length; i++) {
             ssbo[i] = glGetIntegeri(GL_SHADER_STORAGE_BUFFER_BINDING, i);
-            ubo[i] = glGetIntegeri(GL_UNIFORM_BUFFER_BINDING, i);
             ssboStart[i] = glGetInteger64i(GL_SHADER_STORAGE_BUFFER_START, i);
             ssboSize[i] = glGetInteger64i(GL_SHADER_STORAGE_BUFFER_SIZE, i);
+        }
+        for (int i = 0; i < ubo.length; i++) {
+            ubo[i] = glGetIntegeri(GL_UNIFORM_BUFFER_BINDING, i);
             uboStart[i] = glGetInteger64i(GL_UNIFORM_BUFFER_START, i);
             uboSize[i] = glGetInteger64i(GL_UNIFORM_BUFFER_SIZE, i);
         }
@@ -92,15 +105,17 @@ public final class GlStateScope implements AutoCloseable {
     public void close() {
         glUseProgram(program);
         glBindVertexArray(vao);
-        for (int i = 0; i < 10; i++) {
+        for (int i = 0; i < ssbo.length; i++) {
             restoreRange(GL_SHADER_STORAGE_BUFFER, i, ssbo[i], ssboStart[i], ssboSize[i]);
+        }
+        for (int i = 0; i < ubo.length; i++) {
             restoreRange(GL_UNIFORM_BUFFER, i, ubo[i], uboStart[i], uboSize[i]);
         }
         for (int i = 0; i < targets.length; i++) {
             if (targets[i] == GL_ELEMENT_ARRAY_BUFFER && vao == 0) continue;
             glBindBuffer(targets[i], buffers[i]);
         }
-        for (int i = 0; i < 12; i++) {
+        for (int i = 0; i < textures.length; i++) {
             glActiveTexture(GL_TEXTURE0 + i);
             for (int t = 0; t < textureTargets.length; t++) glBindTexture(textureTargets[t], textures[i][t]);
             glBindSampler(i, samplers[i]);
@@ -126,6 +141,14 @@ public final class GlStateScope implements AutoCloseable {
         glProvokingVertex(provoking);
         glBlendFuncSeparate(blendSrcRgb, blendDstRgb, blendSrcAlpha, blendDstAlpha);
         glBlendEquationSeparate(blendEquationRgb, blendEquationAlpha);
+        for (int i = 0; i < indexedBlend.length; i++) {
+            int[] b = indexedBlend[i], mask = indexedMasks[i];
+            if (indexedBlendEnabled[i]) glEnablei(GL_BLEND, i);
+            else glDisablei(GL_BLEND, i);
+            glBlendFuncSeparatei(i, b[0], b[1], b[2], b[3]);
+            glBlendEquationSeparatei(i, b[4], b[5]);
+            glColorMaski(i, mask[0] != 0, mask[1] != 0, mask[2] != 0, mask[3] != 0);
+        }
         for (int i = 0; i < pixelKeys.length; i++) glPixelStorei(pixelKeys[i], pixelValues[i]);
         for (int i = 0; i < 2; i++) {
             int face = i == 0 ? GL_FRONT : GL_BACK;

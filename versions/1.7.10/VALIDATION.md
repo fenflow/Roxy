@@ -1,5 +1,67 @@
 # GTNH terrain validation
 
+## 0.4.0 capture, model isolation and shader bridge — 2026-10-30
+
+- All 40 tests passed on Java 21.0.13 and Java 25.0.5, with the pinned original
+  Voxy JAR and actual Angelica 2.2.10 JAR supplied; zero skips or failures.
+  Full builds, Spotless, Checkstyle and `verifyNoBundledVoxy` passed.
+- New regressions cover fair surface-first capture of 290 chunks, retaining all
+  16 sections across movement, merging updates into partially captured chunks,
+  one-time model fallback after exceptions/linkage failures, and propagation of
+  VM failures. Transformer tests verify valid operand stacks against real
+  Minecraft 1.7.10 and Angelica classes. Biome alias tests preserve host mappings.
+  Existing full-metadata (60000), original model baker and world database tests
+  continue to pass.
+- Live configuration: GTNH 2.9.0-beta-3, Angelica 2.2.10, Java 25.0.5,
+  Windows 11, RTX 3060 / OpenGL 4.6; four native render-distance chunks and
+  a 64-chunk Voxy distance. Testing used a disposable integrated-server world.
+- Reproduced the reported `thaumicbases:advAlchFurnace:3` null-tile exception
+  by placing the furnace in the test world. The generic model boundary logged
+  a static texture fallback and kept the renderer running. Subsequent views
+  encountered additional failing models without disabling Voxy. This does not
+  imply that tile-dependent machine appearances are exact.
+- The initial 289-chunk view settled at 4,636 captured sections (including block
+  updates) and zero pending chunks. The old periodic full recaptures were removed.
+  Four teleports spanning 512 blocks in 15 seconds under Complementary retained
+  received chunks; capture drained to zero pending with 23,615 sections processed.
+  Terrain remained visible after leaving the native render area. These counts
+  include revisits/updates and are not counts of unique stored sections.
+- Tested the latest official versions available at test time:
+  **Complementary Reimagined r5.9.3**, **Photon 1.4**, **BSL 10.1.8**.
+  Each executed the external `IrisVoxyRenderPipeline` with `glError=0` in sampled
+  diagnostics. Their original ZIPs were unchanged. Switching Complementary to
+  Photon rebuilt the pipeline and reopened the same world database successfully.
+- The shared bridge supplies Voxy's source files/macros, current/previous camera
+  matrices, depth samplers, custom uniforms and dependencies, material mappings,
+  texture/sampler bindings, render targets, blend state and storage buffers.
+  BSL exposed missing modern biome constants in Angelica; generic aliases map
+  renamed legacy biomes and use nonmatching IDs for absent modern biomes.
+  There are no checks for shader pack names and no bundled pack shaders.
+- Inspected elevated terrain, nearby forest shadows, snow/ice shoreline views,
+  and moving native/LOD boundaries. BSL's final development run remained ON at
+  9,428 captured sections, zero pending chunks and eight model fallbacks.
+  No depth flicker or double-drawn nearby terrain was observed in those views.
+  Finite visual checks cannot establish absence of all visual bugs; transparency,
+  unknown-terrain edges and special model appearances remain limitations.
+- Compatibility JAR SHA-256:
+  `4327bcb88a5d75a1974927da54c71c12e88e7b8f5bc2ec6bbf06ff6bb4a26581`.
+  The separate original Voxy JAR still hashes to
+  `7f8226cf64a4f5dc064e1075965714b718ac5f42fb28f826135a37c64e66e10b`.
+- A clean packaged-JAR run (no development-loader override) rendered all three
+  packs. The final shader shutdown regression exposed a paused-menu lifecycle
+  gap; pipeline changes now happen before frame preparation/drawing as well as
+  on ticks. Repeating Photon-to-normal switching with the corrected release kept
+  Voxy ON, with 4,357 sections, zero pending chunks and eight model fallbacks;
+  normal-pipeline diagnostics reported `glError=0`. No renderer/shutdown errors
+  appeared in that final run. Binary and sources package audits found zero
+  bundled external classes, assets or nested JARs.
+
+Shader packs must expose Voxy's native interface and also work with Angelica.
+Other packs/settings, all dimensions, dedicated multiplayer and other GPU vendors
+remain unverified. Capture may lag at extreme travel speeds; retained pending
+chunks consume memory until processed. GPU readback diagnostics were enabled for
+these observations, so this is not a performance benchmark.
+
 ## 0.3.0 original Voxy engine — 2026-10-30
 
 This version replaces the active 0.2.x custom draw backend with the external

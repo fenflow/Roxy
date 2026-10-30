@@ -89,6 +89,7 @@ public final class ExternalVoxyLoader extends URLClassLoader {
                         if (!name.startsWith("org.rocksdb.")) {
                             data = VoxyPlatformPatch.apply(data);
                             data = ModelInputPatch.apply(name, data);
+                            data = ShaderLibraryPatch.apply(name, data);
                         }
                         type = defineClass(name, data, 0, data.length);
                         if (name.startsWith("me.cortex.voxy.")) externalClasses++;

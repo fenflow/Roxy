@@ -73,6 +73,15 @@ final class VoxyPlatformPatch {
         TYPES.put("me/cortex/voxy/client/VoxyClient", BRIDGE + "PlatformClient");
         TYPES.put("me/cortex/voxy/client/core/rendering/util/LightMapHelper", BRIDGE + "PlatformLightmap");
         TYPES.put("me/cortex/voxy/client/config/VoxyConfig", BRIDGE + "PlatformConfig");
+        TYPES.put("me/cortex/voxy/client/core/RenderPipelineFactory", BRIDGE + "ShaderPipelineFactory");
+        for (String nested : new String[] { "$StructLayout", "$ImageSet", "$SSBOSet", "" }) TYPES.put(
+            "me/cortex/voxy/client/iris/IrisVoxyRenderPipelineData" + nested,
+            BRIDGE + "ShaderPipelineData" + nested);
+        TYPES.put("net/irisshaders/iris/shaderpack/materialmap/WorldRenderingSettings", BRIDGE + "ShaderMaterials");
+        TYPES.put("net/irisshaders/iris/shaderpack/ShaderPack", "net/coderbot/iris/shaderpack/ShaderPack");
+        TYPES.put(
+            "net/irisshaders/iris/shaderpack/include/AbsolutePackPath",
+            "net/coderbot/iris/shaderpack/include/AbsolutePackPath");
         TYPES.put("me/cortex/voxy/client/core/util/IrisUtil", BRIDGE + "PlatformClient$Iris");
         TYPES.put("net/fabricmc/loader/api/FabricLoader", BRIDGE + "PlatformClient$Fabric");
         TYPES.put("com/mojang/blaze3d/opengl/GlStateManager", BRIDGE + "PlatformClient$GLState");

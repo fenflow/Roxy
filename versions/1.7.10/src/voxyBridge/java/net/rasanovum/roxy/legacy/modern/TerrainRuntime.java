@@ -6,6 +6,8 @@ import java.lang.reflect.Method;
 import java.nio.file.Path;
 import java.util.ArrayList;
 
+import net.rasanovum.roxy.legacy.shader.ShaderHooks;
+
 import org.joml.Matrix4f;
 import org.joml.Matrix4fc;
 
@@ -32,6 +34,19 @@ public final class TerrainRuntime implements AutoCloseable {
     private int depthFormat;
     private boolean closed;
     private int frames;
+    private Viewport<?> preparedViewport;
+    private final java.util.concurrent.ThreadPoolExecutor ingestion = new java.util.concurrent.ThreadPoolExecutor(
+        1,
+        1,
+        0,
+        java.util.concurrent.TimeUnit.SECONDS,
+        new java.util.concurrent.ArrayBlockingQueue<>(512),
+        task -> {
+            Thread thread = new Thread(task, "Roxy world ingestion");
+            thread.setDaemon(true);
+            return thread;
+        });
+    private volatile Throwable ingestionFailure;
 
     public TerrainRuntime(Path gameDirectory, Path database) throws Exception {
         PlatformGame.gameDirectory = gameDirectory;
@@ -55,6 +70,8 @@ public final class TerrainRuntime implements AutoCloseable {
         try (GlStateScope ignored = new GlStateScope()) {
             Capabilities.init();
             me.cortex.voxy.client.RenderStatistics.enabled = DIAGNOSTICS;
+            // Validate the pack/host contract before Voxy allocates renderer services and geometry.
+            ShaderPipelineFactory.prepare();
             renderer = new VoxyRenderSystem(world.engine, world.pool.serviceManager);
             nearSections = new AngelicaSections();
             setupViewport = VoxyRenderSystem.class.getMethod(
@@ -82,7 +99,20 @@ public final class TerrainRuntime implements AutoCloseable {
     }
 
     public void ingest(int x, int y, int z, long[] data) {
-        world.ingest(x, y, z, data);
+        ingestion.execute(() -> {
+            try {
+                world.ingest(x, y, z, data);
+            } catch (Exception | LinkageError error) {
+                ingestionFailure = error;
+            }
+        });
+    }
+
+    public int ingestCapacity() {
+        if (ingestionFailure != null)
+            throw new IllegalStateException("Voxy database ingestion failed", ingestionFailure);
+        return ingestion.getQueue()
+            .remainingCapacity();
     }
 
     public void sectionLoaded(int x, int y, int z, boolean loaded) {
@@ -167,6 +197,32 @@ public final class TerrainRuntime implements AutoCloseable {
         }
     }
 
+    public void prepare(float[] projection, float[] view, double x, double y, double z, int distance, float partialTick)
+        throws Exception {
+        if (renderer == null || closed) return;
+        PlatformGame.renderDistance = distance;
+        PlatformGame.partialTick = partialTick;
+        PlatformGame.projection = new Matrix4f().set(projection);
+        preparedViewport = (Viewport<?>) setupViewport.invoke(
+            renderer,
+            PlatformGame.projection,
+            new Matrix4f().set(view),
+            new PlatformClient.Fog(0, 0, 0, 0, Float.MAX_VALUE, Float.MAX_VALUE),
+            x,
+            y,
+            z);
+        updateShaderMatrices("vxProj", preparedViewport.projection);
+        updateShaderMatrices("vxModelView", preparedViewport.modelView);
+        updateShaderMatrices("vxViewProj", preparedViewport.MVP);
+        ShaderPipelineData shader = ShaderPipelineFactory.current;
+        if (shader != null && shader.thePipeline != null) {
+            shader.thePipeline.fb.resize(preparedViewport.width, preparedViewport.height);
+            shader.thePipeline.fbTranslucent.resize(preparedViewport.width, preparedViewport.height);
+            ShaderHooks.opaqueDepth = shader.thePipeline.fb.getDepthTex().id;
+            ShaderHooks.translucentDepth = shader.thePipeline.fbTranslucent.getDepthTex().id;
+        }
+    }
+
     public void render(float[] projection, float[] view, double x, double y, double z, int distance, float partialTick)
         throws Exception {
         if (renderer == null || closed) return;
@@ -216,17 +272,10 @@ public final class TerrainRuntime implements AutoCloseable {
                 glBindFramebuffer(GL_FRAMEBUFFER, bridgeFramebuffer);
             } else
                 if (type != GL_TEXTURE) throw new IllegalStateException("Unsupported game depth attachment: " + type);
-            PlatformGame.renderDistance = distance;
-            PlatformGame.partialTick = partialTick;
-            PlatformGame.projection = new Matrix4f().set(projection);
-            Viewport<?> target = (Viewport<?>) setupViewport.invoke(
-                renderer,
-                PlatformGame.projection,
-                new Matrix4f().set(view),
-                new PlatformClient.Fog(0, 0, 0, 0, Float.MAX_VALUE, Float.MAX_VALUE),
-                x,
-                y,
-                z);
+            if (preparedViewport == null || ShaderPipelineFactory.current == null)
+                prepare(projection, view, x, y, z, distance, partialTick);
+            Viewport<?> target = preparedViewport;
+            preparedViewport = null;
             nearSections.sync(renderer.chunkBoundRenderer);
             String depthDiagnostic = "";
             if (frames % 120 == 119 && DIAGNOSTICS) {
@@ -256,6 +305,11 @@ public final class TerrainRuntime implements AutoCloseable {
                     + max;
             }
             renderer.renderOpaque(target);
+            ShaderPipelineData shader = ShaderPipelineFactory.current;
+            if (shader != null && shader.thePipeline != null) {
+                ShaderHooks.opaqueDepth = shader.thePipeline.fb.getDepthTex().id;
+                ShaderHooks.translucentDepth = shader.thePipeline.fbTranslucent.getDepthTex().id;
+            }
             if (++frames % 120 == 0 && DIAGNOSTICS) {
                 java.nio.file.Files.writeString(
                     PlatformGame.gameDirectory.resolve("roxy/render-diagnostics.txt"),
@@ -305,6 +359,16 @@ public final class TerrainRuntime implements AutoCloseable {
         }
     }
 
+    private static void updateShaderMatrices(String name, Matrix4fc value) {
+        float[] old = ShaderHooks.MATRICES.get(name);
+        ShaderHooks.MATRICES.put(name + "Prev", old == null ? new Matrix4f(value).get(new float[16]) : old);
+        ShaderHooks.MATRICES.put(name, value.get(new float[16]));
+        ShaderHooks.MATRICES.put(
+            name + "Inv",
+            new Matrix4f(value).invert()
+                .get(new float[16]));
+    }
+
     private void resize(int newWidth, int newHeight, int format) {
         if (bridgeFramebuffer != 0 && width == newWidth && height == newHeight && depthFormat == format) return;
         releaseFramebuffer();
@@ -332,6 +396,16 @@ public final class TerrainRuntime implements AutoCloseable {
     public void close() {
         if (closed) return;
         closed = true;
+        ShaderHooks.opaqueDepth = ShaderHooks.translucentDepth = 0;
+        ingestion.shutdown();
+        try {
+            if (!ingestion.awaitTermination(60, java.util.concurrent.TimeUnit.SECONDS)) throw new IllegalStateException(
+                "Voxy ingestion did not finish; database remains open to avoid losing data");
+        } catch (InterruptedException error) {
+            Thread.currentThread()
+                .interrupt();
+            throw new IllegalStateException("Interrupted while flushing captured terrain", error);
+        }
         try (GlStateScope ignored = new GlStateScope()) {
             try {
                 if (renderer != null) renderer.shutdown();
