@@ -1,5 +1,67 @@
 # GTNH terrain validation
 
+## 0.3.0 original Voxy engine — 2026-10-30
+
+This version replaces the active 0.2.x custom draw backend with the external
+VoxyRenderSystem. Older results below describe older implementations.
+
+- All 32 checks passed on Java 21.0.13 and Java 25.0.5, with the pinned original
+  Voxy JAR supplied and no skipped tests. Full builds, formatting/style checks,
+  and `verifyNoBundledVoxy` passed.
+- Integration tests execute original WorldEngine, WorldUpdater, reducers,
+  serialization, Zstandard and RocksDB code. All five LOD levels persist across
+  reopening, including negative coordinates and metadata 60000. Air updates remove
+  stored geometry. The registry adapter persists its own records in Voxy's store.
+- The original six-view model baker passes a 1,536-pixel cube-face regression.
+  Binary-call validation checks actual transformed Voxy platform descriptors,
+  including interface linkage. A section-height regression verifies that the
+  legacy 0–255 world produces a nonempty top-level traversal range.
+- Fluid input tests exercise independently captured top and side geometry through
+  the original baker. A RenderBlocks colour regression checks recovery of legacy
+  directional shading. The render hook is verified against the actual 1.7.10
+  EntityRenderer bytecode, retaining its original calls and valid operand stacks.
+- A model-lighting regression distinguishes translucent full cubes from fluids,
+  opaque blocks and inset geometry. Only complete translucent cubes request
+  adjacent-cell light, matching the legacy RenderBlocks convention.
+- Live game: GTNH 2.9.0-beta-3, Angelica 2.2.10, Java 25.0.5, Windows 11,
+  RTX 3060 / OpenGL 4.6. The installed compatibility JAR discovered Voxy under its
+  original filename in `mods`, enabled automatically and restored the database.
+- Voxy's original asynchronous mesher, model store, hierarchy traversal, MDIC GPU
+  renderer and SSAO visibly drew mountains, trees, snow, water and terrain.
+  A reference view reported 154 visible sections and approximately 282,778 quads,
+  with `glError=0`. At approximately one kilometre, visible level-0 and level-1
+  sections confirmed that adaptive subdivision was active.
+- Examined elevated and shoreline views, near-terrain occlusion and fog handoff,
+  daytime/nighttime lightmap changes, travel, and same-JVM world exit/re-entry.
+  The reference scene had no observed depth flicker or double-drawn near terrain.
+  Static views and a finite set of camera positions cannot prove absence of all
+  visual bugs. Unvisited terrain gaps and differing fluid appearances remain limits.
+- Reloading the world retained the same GPU allocation counts: 27 buffers / about
+  640 MiB and six textures / about 548 MiB. The default geometry budget is 512 MiB;
+  the world, GTNH atlas and other mods require additional resources.
+- Fixed zero visible sections caused by GTNH's zero stencil write mask. Voxy now
+  renders immediately before native translucent terrain, preserving Angelica's
+  original terrain calls. The bridge establishes Voxy's expected writable state and
+  restores the game state, including indexed buffer ranges, texture/image units,
+  dispatch buffers, depth/stencil masks and sampler bindings.
+- In-world block additions/removals beyond native render distance update the
+  original Voxy meshes. Full resource reload recaptures models and resumes the
+  renderer without increasing its stable GPU allocation counts.
+- The final installed JAR was checked at the elevated reference view and two
+  nearby shoreline positions. GPU readback confirmed ice's translucent/shaded
+  flags and adjacent-face lighting metadata; the large ice brightness mismatch
+  was reduced. No depth flicker or near-terrain duplication was observed in these
+  views. Ice/water composition can still differ from Angelica's native rendering.
+- Final compatibility JAR SHA-256:
+  `d6d2b75de47ba84721b5c2359c8bf941b76b273223e8f2185fcb0c8596ce0b2b`.
+- The unchanged external Voxy SHA-256 is
+  `7f8226cf64a4f5dc064e1075965714b718ac5f42fb28f826135a37c64e66e10b`.
+  The package audit found 73 compatibility bridge classes and zero Voxy classes,
+  Voxy assets, Minecraft classes, or nested JARs.
+
+Angelica 2.1.61, other GPU vendors, dedicated multiplayer, all dimensions,
+tile-dependent machine models and every resource pack remain unverified.
+
 ## 0.2.1 installation and terrain fixes — 2026-10-30
 
 - Reproduced a missing external JAR with a regression test. It now reports

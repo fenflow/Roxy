@@ -17,7 +17,7 @@ public final class RoxyLegacy {
     @SideOnly(Side.CLIENT)
     public void init(FMLInitializationEvent event) {
         net.minecraftforge.client.ClientCommandHandler.instance.registerCommand(new RoxyProbeCommand());
-        net.rasanovum.roxy.legacy.terrain.LegacyTerrain.INSTANCE.initialize();
+        net.rasanovum.roxy.legacy.terrain.ModernTerrain.INSTANCE.initialize();
         org.apache.logging.log4j.LogManager.getLogger("Roxy")
             .info("Roxy 1.7.10 terrain compatibility initialized; use /roxy status for diagnostics.");
     }

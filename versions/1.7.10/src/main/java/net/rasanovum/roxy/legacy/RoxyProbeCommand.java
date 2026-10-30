@@ -9,9 +9,10 @@ import net.minecraft.world.chunk.Chunk;
 import net.rasanovum.roxy.legacy.bridge.LegacyChunkCapture;
 import net.rasanovum.roxy.legacy.bridge.LegacyPalette;
 import net.rasanovum.roxy.legacy.loader.LoadDiagnostics;
+import net.rasanovum.roxy.legacy.loader.ModernEngineProbe;
 import net.rasanovum.roxy.legacy.loader.VoxyJarLocator;
 import net.rasanovum.roxy.legacy.loader.VoxyRuntime;
-import net.rasanovum.roxy.legacy.terrain.LegacyTerrain;
+import net.rasanovum.roxy.legacy.terrain.ModernTerrain;
 
 /** Client-local rendering controls and an explicit external binary diagnostic. */
 public final class RoxyProbeCommand extends CommandBase {
@@ -23,7 +24,7 @@ public final class RoxyProbeCommand extends CommandBase {
 
     @Override
     public String getCommandUsage(ICommandSender sender) {
-        return "/roxy status | on | off | hud | distance <8-64> | probe";
+        return "/roxy status | on | off | hud | distance <8-128> | reload | probe";
     }
 
     @Override
@@ -33,9 +34,37 @@ public final class RoxyProbeCommand extends CommandBase {
 
     @Override
     public void processCommand(ICommandSender sender, String[] arguments) {
-        LegacyTerrain terrain = LegacyTerrain.INSTANCE;
+        if (arguments.length == 1 && ("modern".equals(arguments[0]) || "modernstatus".equals(arguments[0]))) {
+            net.rasanovum.roxy.legacy.terrain.ModernTerrain terrain = net.rasanovum.roxy.legacy.terrain.ModernTerrain.INSTANCE;
+            sender.addChatMessage(
+                new ChatComponentText("modern".equals(arguments[0]) ? terrain.toggle() : terrain.status()));
+            return;
+        }
+        if (arguments.length == 1 && ("engineprobe".equals(arguments[0]) || "modelprobe".equals(arguments[0])
+            || "rendererprobe".equals(arguments[0]))) {
+            try {
+                String result = "modelprobe".equals(arguments[0])
+                    ? ModernEngineProbe.models(Minecraft.getMinecraft().mcDataDir.toPath())
+                    : "rendererprobe".equals(arguments[0])
+                        ? ModernEngineProbe.renderer(Minecraft.getMinecraft().mcDataDir.toPath())
+                        : ModernEngineProbe.run(Minecraft.getMinecraft().mcDataDir.toPath());
+                org.apache.logging.log4j.LogManager.getLogger("Roxy")
+                    .info(result);
+                sender.addChatMessage(new ChatComponentText(result));
+            } catch (Exception | LinkageError error) {
+                org.apache.logging.log4j.LogManager.getLogger("Roxy")
+                    .error("Voxy engine diagnostic failed", error);
+                sender.addChatMessage(
+                    new ChatComponentText("Voxy engine diagnostic failed: " + LoadDiagnostics.describe(error)));
+            }
+            return;
+        }
+        ModernTerrain terrain = ModernTerrain.INSTANCE;
         if (arguments.length == 1) {
-            if ("on".equals(arguments[0]) || "off".equals(arguments[0])) {
+            if ("reload".equals(arguments[0])) {
+                Minecraft.getMinecraft()
+                    .refreshResources();
+            } else if ("on".equals(arguments[0]) || "off".equals(arguments[0])) {
                 terrain.setEnabled("on".equals(arguments[0]));
             } else if ("hud".equals(arguments[0])) {
                 terrain.toggleHud();
@@ -51,7 +80,7 @@ public final class RoxyProbeCommand extends CommandBase {
             try {
                 terrain.setDistance(Integer.parseInt(arguments[1]));
                 sender.addChatMessage(new ChatComponentText(terrain.status()));
-            } catch (NumberFormatException invalid) {
+            } catch (IllegalArgumentException invalid) {
                 sender.addChatMessage(new ChatComponentText(getCommandUsage(sender)));
             }
             return;

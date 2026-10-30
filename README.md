@@ -1,7 +1,6 @@
-> **GTNH / 1.7.10 development branch:** [Legacy terrain alpha and installation instructions](versions/1.7.10/README.md).
-> This branch contains an external-Voxy terrain compatibility alpha with a legacy renderer. See its README for installation, supported features, and limits.
+> **GTNH / 1.7.10 branch:** [Voxy engine compatibility alpha and installation instructions](versions/1.7.10/README.md).
+> Version 0.3.0 runs the original external Voxy GPU renderer, model baker, world database, and adaptive LOD hierarchy in GTNH. See the linked README for its tested configuration and remaining limits. The upstream documentation below describes modern NeoForge, not this GTNH build.
 > The mod is in ALPHA, and while works to an extent, still has a lot of visual bugs and no shader support
-
 
 <h1 align="center">Roxy<br>
 <a href="https://www.curseforge.com/minecraft/mc-mods/roxy"><img src="https://img.shields.io/badge/CurseForge-1.21.1-orange?style=for-the-badge"></a>
